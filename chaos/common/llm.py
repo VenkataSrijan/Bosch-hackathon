@@ -11,7 +11,7 @@ Local provider configuration (environment variables):
   - LLM_MODEL_PATH   absolute path to the .gguf file (falls back to LLM_MODEL if that is a path)
   - LLM_N_CTX        context window, default 8192
   - LLM_N_THREADS    CPU threads, default = all cores
-  - LLM_N_GPU_LAYERS layers to offload to GPU, default 0 (CPU only)
+  - LLM_N_GPU_LAYERS layers to offload to GPU, default -1 (all; CPU-only builds ignore it)
 """
 from __future__ import annotations
 
@@ -103,7 +103,7 @@ def _get_local_llm():
             model_path=path,
             n_ctx=int(os.environ.get("LLM_N_CTX", "8192")),
             n_threads=int(threads) if threads else None,
-            n_gpu_layers=int(os.environ.get("LLM_N_GPU_LAYERS", "0")),
+            n_gpu_layers=int(os.environ.get("LLM_N_GPU_LAYERS", "-1")),  # -1 = all layers on GPU; CPU-only builds ignore it
             verbose=False,
         )
     except Exception as exc:
