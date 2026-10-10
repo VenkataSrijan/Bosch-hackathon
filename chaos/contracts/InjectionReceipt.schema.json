@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "InjectionReceipt.schema.json",
+  "$defs": {
+    "ExecutionDetails": {
+      "additionalProperties": false,
+      "properties": {
+        "target_pod": {
+          "title": "Target Pod",
+          "type": "string"
+        },
+        "cgroup_id": {
+          "title": "Cgroup Id",
+          "type": "string"
+        },
+        "fault_applied": {
+          "title": "Fault Applied",
+          "type": "string"
+        },
+        "pod_scope": {
+          "title": "Pod Scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target_pod",
+        "cgroup_id",
+        "fault_applied",
+        "pod_scope"
+      ],
+      "title": "ExecutionDetails",
+      "type": "object"
+    },
+    "InjectionStatus": {
+      "enum": [
+        "RUNNING",
+        "COMPLETED",
+        "ABORTED",
+        "NO_GO",
+        "FAILED"
+      ],
+      "title": "InjectionStatus",
+      "type": "string"
+    },
+    "InjectionTimestamps": {
+      "additionalProperties": false,
+      "properties": {
+        "initiated_at": {
+          "format": "date-time",
+          "title": "Initiated At",
+          "type": "string"
+        },
+        "hard_timeout_at": {
+          "format": "date-time",
+          "title": "Hard Timeout At",
+          "type": "string"
+        },
+        "ended_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ended At"
+        }
+      },
+      "required": [
+        "initiated_at",
+        "hard_timeout_at"
+      ],
+      "title": "InjectionTimestamps",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "default": "https://json-schema.org/draft/2020-12/schema",
+      "title": "$Schema",
+      "type": "string"
+    },
+    "experiment_id": {
+      "title": "Experiment Id",
+      "type": "string"
+    },
+    "injection_id": {
+      "title": "Injection Id",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/InjectionStatus"
+    },
+    "execution_details": {
+      "$ref": "#/$defs/ExecutionDetails"
+    },
+    "timestamps": {
+      "$ref": "#/$defs/InjectionTimestamps"
+    }
+  },
+  "required": [
+    "experiment_id",
+    "injection_id",
+    "status",
+    "execution_details",
+    "timestamps"
+  ],
+  "title": "InjectionReceipt",
+  "type": "object"
+}

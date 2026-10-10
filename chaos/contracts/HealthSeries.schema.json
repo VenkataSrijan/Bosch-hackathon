@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "HealthSeries.schema.json",
+  "$defs": {
+    "HealthSample": {
+      "additionalProperties": false,
+      "properties": {
+        "t": {
+          "format": "date-time",
+          "title": "T",
+          "type": "string"
+        },
+        "checkout_success_rate_percent": {
+          "title": "Checkout Success Rate Percent",
+          "type": "number"
+        },
+        "p99_latency_ms": {
+          "title": "P99 Latency Ms",
+          "type": "number"
+        },
+        "error_rate_percent": {
+          "title": "Error Rate Percent",
+          "type": "number"
+        }
+      },
+      "required": [
+        "t",
+        "checkout_success_rate_percent",
+        "p99_latency_ms",
+        "error_rate_percent"
+      ],
+      "title": "HealthSample",
+      "type": "object"
+    }
+  },
+  "items": {
+    "$ref": "#/$defs/HealthSample"
+  },
+  "title": "HealthSeries",
+  "type": "array"
+}

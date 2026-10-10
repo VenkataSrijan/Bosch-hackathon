@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "experiment_id": "exp-boutique-pay-089",
+  "recommendation_id": "rec-pay-timeout-001",
+  "priority": "HIGH",
+  "target_repository": "github.com/VenkataSrijan/Bosch-hackathon",
+  "target_file": "src/checkoutservice/main.go",
+  "target_symbol": "chargeCard()",
+  "vulnerability_type": "CASCADING_TIMEOUT_COLLAPSE",
+  "summary": "Missing client-side RPC deadline and circuit breaker when calling paymentservice.",
+  "architectural_guidance": "Upstream services must not wait indefinitely on slow downstream dependencies. Add a strict context deadline on the Charge call and a fallback or retry path so checkout stays available under degraded network conditions.",
+  "suggested_diff": "--- a/src/checkoutservice/main.go\n+++ b/src/checkoutservice/main.go\n@@ -367,5 +367,7 @@ func (cs *checkoutService) convertCurrency(ctx context.Context, from *pb.Money,\n \n func (cs *checkoutService) chargeCard(ctx context.Context, amount *pb.Money, paymentInfo *pb.CreditCardInfo) (string, error) {\n-\tpaymentResp, err := pb.NewPaymentServiceClient(cs.paymentSvcConn).Charge(ctx, &pb.ChargeRequest{\n+\ttCtx, cancel := context.WithTimeout(ctx, 150*time.Millisecond)\n+\tdefer cancel()\n+\tpaymentResp, err := pb.NewPaymentServiceClient(cs.paymentSvcConn).Charge(tCtx, &pb.ChargeRequest{\n \t\tAmount:     amount,\n \t\tCreditCard: paymentInfo})\n",
+  "verification_command": "python -m phase2_injection --exp artifacts/exp-boutique-pay-089"
+}

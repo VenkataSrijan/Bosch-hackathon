@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "AbortSignal.schema.json",
+  "additionalProperties": false,
+  "properties": {
+    "experiment_id": {
+      "title": "Experiment Id",
+      "type": "string"
+    },
+    "aborted_at": {
+      "format": "date-time",
+      "title": "Aborted At",
+      "type": "string"
+    },
+    "breached_metric": {
+      "enum": [
+        "max_p99_latency_ms",
+        "max_error_rate_percent",
+        "min_checkout_success_rate_percent"
+      ],
+      "title": "Breached Metric",
+      "type": "string"
+    },
+    "observed_value": {
+      "title": "Observed Value",
+      "type": "number"
+    },
+    "threshold": {
+      "title": "Threshold",
+      "type": "number"
+    }
+  },
+  "required": [
+    "experiment_id",
+    "aborted_at",
+    "breached_metric",
+    "observed_value",
+    "threshold"
+  ],
+  "title": "AbortSignal",
+  "type": "object"
+}

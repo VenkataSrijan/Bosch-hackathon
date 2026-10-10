@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "CanaryVerdict.schema.json",
+  "$defs": {
+    "CanaryDecision": {
+      "enum": [
+        "GO",
+        "NO_GO"
+      ],
+      "title": "CanaryDecision",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "experiment_id": {
+      "title": "Experiment Id",
+      "type": "string"
+    },
+    "decision": {
+      "$ref": "#/$defs/CanaryDecision"
+    },
+    "checked_at": {
+      "format": "date-time",
+      "title": "Checked At",
+      "type": "string"
+    },
+    "reason": {
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "experiment_id",
+    "decision",
+    "checked_at",
+    "reason"
+  ],
+  "title": "CanaryVerdict",
+  "type": "object"
+}

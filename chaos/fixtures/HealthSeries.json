@@ -1,0 +1,5 @@
+[
+  { "t": "2026-10-11T00:50:15Z", "checkout_success_rate_percent": 99.98, "p99_latency_ms": 18.5, "error_rate_percent": 0.02 },
+  { "t": "2026-10-11T00:50:38Z", "checkout_success_rate_percent": 99.38, "p99_latency_ms": 1280.0, "error_rate_percent": 0.62 },
+  { "t": "2026-10-11T00:50:50Z", "checkout_success_rate_percent": 99.98, "p99_latency_ms": 19.0, "error_rate_percent": 0.02 }
+]

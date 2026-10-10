@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "Recommendation.schema.json",
+  "$defs": {
+    "Priority": {
+      "enum": [
+        "HIGH",
+        "MEDIUM",
+        "LOW",
+        "INFO"
+      ],
+      "title": "Priority",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "default": "https://json-schema.org/draft/2020-12/schema",
+      "title": "$Schema",
+      "type": "string"
+    },
+    "experiment_id": {
+      "title": "Experiment Id",
+      "type": "string"
+    },
+    "recommendation_id": {
+      "title": "Recommendation Id",
+      "type": "string"
+    },
+    "priority": {
+      "$ref": "#/$defs/Priority"
+    },
+    "target_repository": {
+      "title": "Target Repository",
+      "type": "string"
+    },
+    "target_file": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Target File"
+    },
+    "target_symbol": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Target Symbol"
+    },
+    "vulnerability_type": {
+      "title": "Vulnerability Type",
+      "type": "string"
+    },
+    "summary": {
+      "title": "Summary",
+      "type": "string"
+    },
+    "architectural_guidance": {
+      "title": "Architectural Guidance",
+      "type": "string"
+    },
+    "suggested_diff": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Suggested Diff"
+    },
+    "verification_command": {
+      "title": "Verification Command",
+      "type": "string"
+    }
+  },
+  "required": [
+    "experiment_id",
+    "recommendation_id",
+    "priority",
+    "target_repository",
+    "vulnerability_type",
+    "summary",
+    "architectural_guidance",
+    "verification_command"
+  ],
+  "title": "Recommendation",
+  "type": "object"
+}

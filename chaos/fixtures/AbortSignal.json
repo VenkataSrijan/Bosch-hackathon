@@ -1,0 +1,7 @@
+{
+  "experiment_id": "exp-boutique-pay-089",
+  "aborted_at": "2026-10-11T00:50:38Z",
+  "breached_metric": "min_checkout_success_rate_percent",
+  "observed_value": 99.38,
+  "threshold": 99.50
+}

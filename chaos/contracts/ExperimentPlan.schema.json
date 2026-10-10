@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ExperimentPlan.schema.json",
+  "$defs": {
+    "AbortThresholds": {
+      "additionalProperties": false,
+      "properties": {
+        "max_p99_latency_ms": {
+          "exclusiveMinimum": 0,
+          "title": "Max P99 Latency Ms",
+          "type": "number"
+        },
+        "max_error_rate_percent": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Max Error Rate Percent",
+          "type": "number"
+        },
+        "min_checkout_success_rate_percent": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Min Checkout Success Rate Percent",
+          "type": "number"
+        }
+      },
+      "required": [
+        "max_p99_latency_ms",
+        "max_error_rate_percent",
+        "min_checkout_success_rate_percent"
+      ],
+      "title": "AbortThresholds",
+      "type": "object"
+    },
+    "FaultProfile": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "action": {
+          "title": "Action",
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "title": "Parameters",
+          "type": "object"
+        },
+        "ramp_strategy": {
+          "title": "Ramp Strategy",
+          "type": "string"
+        },
+        "max_duration_seconds": {
+          "exclusiveMinimum": 0,
+          "title": "Max Duration Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "category",
+        "action",
+        "parameters",
+        "ramp_strategy",
+        "max_duration_seconds"
+      ],
+      "title": "FaultProfile",
+      "type": "object"
+    },
+    "SteadyStateBaseline": {
+      "additionalProperties": false,
+      "properties": {
+        "p99_latency_ms": {
+          "minimum": 0,
+          "title": "P99 Latency Ms",
+          "type": "number"
+        },
+        "global_error_rate_percent": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Global Error Rate Percent",
+          "type": "number"
+        },
+        "checkout_success_rate_percent": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Checkout Success Rate Percent",
+          "type": "number"
+        }
+      },
+      "required": [
+        "p99_latency_ms",
+        "global_error_rate_percent",
+        "checkout_success_rate_percent"
+      ],
+      "title": "SteadyStateBaseline",
+      "type": "object"
+    },
+    "TargetNode": {
+      "additionalProperties": false,
+      "properties": {
+        "service_name": {
+          "title": "Service Name",
+          "type": "string"
+        },
+        "namespace": {
+          "title": "Namespace",
+          "type": "string"
+        },
+        "deployment": {
+          "title": "Deployment",
+          "type": "string"
+        },
+        "replicas_total": {
+          "minimum": 2,
+          "title": "Replicas Total",
+          "type": "integer"
+        },
+        "targetable_replicas": {
+          "minimum": 1,
+          "title": "Targetable Replicas",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "service_name",
+        "namespace",
+        "deployment",
+        "replicas_total",
+        "targetable_replicas"
+      ],
+      "title": "TargetNode",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "default": "https://json-schema.org/draft/2020-12/schema",
+      "title": "$Schema",
+      "type": "string"
+    },
+    "experiment_id": {
+      "pattern": "^exp-[a-z0-9]+-[a-z0-9-]+-\\d{3}$",
+      "title": "Experiment Id",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "target_node": {
+      "$ref": "#/$defs/TargetNode"
+    },
+    "fault_profile": {
+      "$ref": "#/$defs/FaultProfile"
+    },
+    "steady_state_baseline": {
+      "$ref": "#/$defs/SteadyStateBaseline"
+    },
+    "abort_thresholds": {
+      "$ref": "#/$defs/AbortThresholds"
+    }
+  },
+  "required": [
+    "experiment_id",
+    "created_at",
+    "target_node",
+    "fault_profile",
+    "steady_state_baseline",
+    "abort_thresholds"
+  ],
+  "title": "ExperimentPlan",
+  "type": "object"
+}

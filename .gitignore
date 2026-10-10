@@ -26,3 +26,10 @@ obj/
 pkg/
 release/wi-kubernetes-manifests.yaml
 vendor/
+
+# chaos platform
+.env
+chaos/artifacts/
+chaos/.tools/
+.pytest_cache/
+__pycache__/

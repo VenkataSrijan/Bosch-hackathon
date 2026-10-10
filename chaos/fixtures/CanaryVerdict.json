@@ -1,0 +1,6 @@
+{
+  "experiment_id": "exp-boutique-pay-089",
+  "decision": "GO",
+  "checked_at": "2026-10-11T00:50:27Z",
+  "reason": "Edge p99 and error rate within abort thresholds during the 10 s burst."
+}

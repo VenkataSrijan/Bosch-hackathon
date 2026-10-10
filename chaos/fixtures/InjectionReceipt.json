@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "experiment_id": "exp-boutique-pay-089",
+  "injection_id": "inj-net-009182",
+  "status": "RUNNING",
+  "execution_details": {
+    "target_pod": "paymentservice-6564998797-2w87x",
+    "cgroup_id": "kubepods-burstable-podpaymentservice.slice",
+    "fault_applied": "tc qdisc add dev eth0 root netem delay 250ms 20ms",
+    "pod_scope": "1 of 2 replicas"
+  },
+  "timestamps": {
+    "initiated_at": "2026-10-11T00:50:15.102Z",
+    "hard_timeout_at": "2026-10-11T00:51:15.102Z"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "experiment_id": "exp-boutique-pay-089",
+  "created_at": "2026-10-11T00:50:00Z",
+  "target_node": {
+    "service_name": "paymentservice",
+    "namespace": "default",
+    "deployment": "paymentservice",
+    "replicas_total": 2,
+    "targetable_replicas": 1
+  },
+  "fault_profile": {
+    "category": "network",
+    "action": "latency",
+    "parameters": { "delay_ms": 250, "jitter_ms": 20, "target_pods": 1 },
+    "ramp_strategy": "canary_stepped",
+    "max_duration_seconds": 60
+  },
+  "steady_state_baseline": {
+    "p99_latency_ms": 18.5,
+    "global_error_rate_percent": 0.02,
+    "checkout_success_rate_percent": 99.98
+  },
+  "abort_thresholds": {
+    "max_p99_latency_ms": 500.0,
+    "max_error_rate_percent": 0.50,
+    "min_checkout_success_rate_percent": 99.50
+  }
+}

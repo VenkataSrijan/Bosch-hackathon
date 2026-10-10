@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "Quarantine.schema.json",
+  "additionalProperties": false,
+  "properties": {
+    "experiment_id": {
+      "title": "Experiment Id",
+      "type": "string"
+    },
+    "quarantined_at": {
+      "format": "date-time",
+      "title": "Quarantined At",
+      "type": "string"
+    },
+    "reason": {
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "experiment_id",
+    "quarantined_at",
+    "reason"
+  ],
+  "title": "Quarantine",
+  "type": "object"
+}

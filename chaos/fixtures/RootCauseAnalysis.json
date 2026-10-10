@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "experiment_id": "exp-boutique-pay-089",
+  "verdict": "ABORT_TRIGGERED",
+  "impact_summary": {
+    "steady_state_maintained": false,
+    "lowest_checkout_success_rate": 99.38,
+    "peak_p99_latency_ms": 1280.0
+  },
+  "cascade_path": [
+    { "hop": 1, "service": "paymentservice", "manifestation": "250ms synthetic latency applied to network socket." },
+    { "hop": 2, "service": "checkoutservice", "manifestation": "Client calls blocked waiting on Charge RPC; request handlers backed up." },
+    { "hop": 3, "service": "frontend", "manifestation": "Upstream requests timed out; HTTP 504 Gateway Timeout returned to end users." }
+  ],
+  "root_cause_isolation": {
+    "faulty_service": "checkoutservice",
+    "mechanism": "Synchronous blocking gRPC call without a client-side deadline or circuit breaker.",
+    "stack_trace_snippet": "rpc error: code = DeadlineExceeded desc = context deadline exceeded\n  at checkoutservice/main.go:369"
+  }
+}

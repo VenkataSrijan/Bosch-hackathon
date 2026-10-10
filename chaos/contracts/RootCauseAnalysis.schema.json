@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "RootCauseAnalysis.schema.json",
+  "$defs": {
+    "CascadeHop": {
+      "additionalProperties": false,
+      "properties": {
+        "hop": {
+          "minimum": 1,
+          "title": "Hop",
+          "type": "integer"
+        },
+        "service": {
+          "title": "Service",
+          "type": "string"
+        },
+        "manifestation": {
+          "title": "Manifestation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "hop",
+        "service",
+        "manifestation"
+      ],
+      "title": "CascadeHop",
+      "type": "object"
+    },
+    "ImpactSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "steady_state_maintained": {
+          "title": "Steady State Maintained",
+          "type": "boolean"
+        },
+        "lowest_checkout_success_rate": {
+          "title": "Lowest Checkout Success Rate",
+          "type": "number"
+        },
+        "peak_p99_latency_ms": {
+          "title": "Peak P99 Latency Ms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "steady_state_maintained",
+        "lowest_checkout_success_rate",
+        "peak_p99_latency_ms"
+      ],
+      "title": "ImpactSummary",
+      "type": "object"
+    },
+    "RcaVerdict": {
+      "enum": [
+        "ABORT_TRIGGERED",
+        "DEGRADED_NO_ABORT",
+        "STEADY_STATE_MAINTAINED"
+      ],
+      "title": "RcaVerdict",
+      "type": "string"
+    },
+    "RootCauseIsolation": {
+      "additionalProperties": false,
+      "properties": {
+        "faulty_service": {
+          "title": "Faulty Service",
+          "type": "string"
+        },
+        "mechanism": {
+          "title": "Mechanism",
+          "type": "string"
+        },
+        "stack_trace_snippet": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stack Trace Snippet"
+        }
+      },
+      "required": [
+        "faulty_service",
+        "mechanism"
+      ],
+      "title": "RootCauseIsolation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "default": "https://json-schema.org/draft/2020-12/schema",
+      "title": "$Schema",
+      "type": "string"
+    },
+    "experiment_id": {
+      "title": "Experiment Id",
+      "type": "string"
+    },
+    "verdict": {
+      "$ref": "#/$defs/RcaVerdict"
+    },
+    "impact_summary": {
+      "$ref": "#/$defs/ImpactSummary"
+    },
+    "cascade_path": {
+      "items": {
+        "$ref": "#/$defs/CascadeHop"
+      },
+      "title": "Cascade Path",
+      "type": "array"
+    },
+    "root_cause_isolation": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RootCauseIsolation"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "experiment_id",
+    "verdict",
+    "impact_summary"
+  ],
+  "title": "RootCauseAnalysis",
+  "type": "object"
+}

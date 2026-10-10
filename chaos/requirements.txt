@@ -1,0 +1,10 @@
+# Shared dependencies. Each phase adds its own in <phase folder>/requirements.txt.
+pydantic>=2.6,<3
+pytest>=8
+anthropic>=1.0  # optional at runtime: only used when LLM_PROVIDER=anthropic
+
+-r phase1_observation/requirements.txt
+-r phase2_injection/requirements.txt
+-r phase3_judge/requirements.txt
+-r phase4_advisor/requirements.txt
+-r console/requirements.txt
