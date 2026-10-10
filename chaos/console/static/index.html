@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chaos Console</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f5f5f3;
+  --surface-1: #fcfcfb;
+  --surface-2: #f0efec;
+  --border: #e3e2dd;
+  --grid: #e9e8e3;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #77766f;
+  --series-1: #2a78d6;
+  --band: rgba(42, 120, 214, 0.08);
+  --good: #0ca30c;
+  --good-text: #006300;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+  --diff-add: rgba(12, 163, 12, 0.12);
+  --diff-del: rgba(208, 59, 59, 0.12);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #111110;
+    --surface-1: #1a1a19;
+    --surface-2: #242422;
+    --border: #33332f;
+    --grid: #2b2b28;
+    --text-primary: #f0efec;
+    --text-secondary: #c3c2b7;
+    --text-muted: #96958c;
+    --series-1: #3987e5;
+    --band: rgba(57, 135, 229, 0.12);
+    --good-text: #4cc44c;
+    --diff-add: rgba(12, 163, 12, 0.18);
+    --diff-del: rgba(208, 59, 59, 0.2);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #111110;
+  --surface-1: #1a1a19;
+  --surface-2: #242422;
+  --border: #33332f;
+  --grid: #2b2b28;
+  --text-primary: #f0efec;
+  --text-secondary: #c3c2b7;
+  --text-muted: #96958c;
+  --series-1: #3987e5;
+  --band: rgba(57, 135, 229, 0.12);
+  --good-text: #4cc44c;
+  --diff-add: rgba(12, 163, 12, 0.18);
+  --diff-del: rgba(208, 59, 59, 0.2);
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--page); color: var(--text-primary);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+header {
+  display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+  padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--surface-1);
+}
+header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+header .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+select, button {
+  font: inherit; color: var(--text-primary); background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px;
+}
+button { cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--text-muted); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+button.primary { background: var(--critical); border-color: var(--critical); color: #fff; }
+main { max-width: 1280px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+.banner {
+  display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center;
+  padding: 14px 16px; border-radius: 8px; background: var(--surface-1);
+  border: 1px solid var(--border); border-left: 6px solid var(--text-muted);
+}
+.banner .state { font-size: 18px; font-weight: 650; display: flex; align-items: center; gap: 8px; }
+.banner .meta { color: var(--text-secondary); }
+.banner .id { font-family: var(--mono); }
+.banner.good { border-left-color: var(--good); }
+.banner.critical { border-left-color: var(--critical); }
+.banner.warning { border-left-color: var(--warning); }
+.banner.running { border-left-color: var(--series-1); }
+.icon { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  font-size: 13px; font-weight: 700; color: #fff; background: var(--text-muted); flex: none; }
+.icon.good { background: var(--good); } .icon.critical { background: var(--critical); }
+.icon.warning { background: var(--warning); color: #0b0b0b; } .icon.running { background: var(--series-1); }
+.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 16px; min-width: 0; }
+.card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-secondary);
+  margin: 0 0 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.agents { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 16px; }
+@media (max-width: 860px) { .agents { grid-template-columns: minmax(0, 1fr); } }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; }
+dt { color: var(--text-secondary); }
+dd { margin: 0; overflow-wrap: anywhere; }
+.waiting { color: var(--text-muted); font-style: italic; }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface-2); font-size: 12px; font-weight: 600; }
+.chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
+.chip.good .dot { background: var(--good); } .chip.critical .dot { background: var(--critical); }
+.chip.warning .dot { background: var(--warning); } .chip.serious .dot { background: var(--serious); }
+.chip.running .dot { background: var(--series-1); }
+ol.cascade { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+ol.cascade li { display: grid; grid-template-columns: 28px 1fr; gap: 8px; }
+ol.cascade .hop { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--surface-2); border: 1px solid var(--border); font-size: 12px; font-weight: 600; }
+ol.cascade .svc { font-weight: 600; }
+ol.cascade .what { color: var(--text-secondary); }
+section.block { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+section.block:first-of-type { margin-top: 0; padding-top: 0; border-top: 0; }
+section.block h3 { margin: 0 0 8px; font-size: 14px; }
+pre { margin: 0; padding: 10px 12px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border);
+  font-family: var(--mono); font-size: 12px; line-height: 1.45; overflow-x: auto; white-space: pre; }
+pre .add { background: var(--diff-add); display: block; }
+pre .del { background: var(--diff-del); display: block; }
+pre .hunk { color: var(--text-muted); display: block; }
+ul.checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+ul.checks li { display: grid; grid-template-columns: 22px 150px 1fr; gap: 8px; align-items: start; }
+ul.checks .ev { color: var(--text-muted); font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.charts { display: grid; gap: 14px; }
+.chart-title { font-size: 13px; font-weight: 600; margin: 0 0 4px; display: flex; gap: 14px; flex-wrap: wrap; align-items: baseline; }
+.chart-title .legend { font-weight: 400; color: var(--text-secondary); font-size: 12px; display: flex; gap: 12px; flex-wrap: wrap; }
+.legend .sw { display: inline-block; width: 18px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 4px; }
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; height: 180px; overflow: visible; }
+.chart svg text { font-size: 11px; fill: var(--text-muted); font-family: inherit; }
+.tooltip { position: absolute; pointer-events: none; background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 8px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.12);
+  white-space: nowrap; display: none; z-index: 2; }
+.tooltip b { font-weight: 600; }
+details summary { cursor: pointer; color: var(--text-secondary); }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; margin-top: 8px; }
+th, td { text-align: right; padding: 3px 8px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+th:first-child, td:first-child { text-align: left; }
+.table-wrap { max-height: 260px; overflow: auto; }
+.toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--text-primary);
+  color: var(--page); padding: 8px 14px; border-radius: 6px; font-size: 13px; opacity: 0; transition: opacity .2s;
+  pointer-events: none; max-width: calc(100vw - 32px); }
+.toast.show { opacity: 1; }
+.empty { text-align: center; padding: 48px 16px; color: var(--text-secondary); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Chaos Console</h1>
+  <div class="controls">
+    <label for="exp-select" class="meta" style="color:var(--text-secondary)">Experiment</label>
+    <select id="exp-select" aria-label="Experiment"></select>
+    <span id="conn" class="chip"><span class="dot"></span><span>connecting</span></span>
+  </div>
+</header>
+
+<main id="app">
+  <div class="empty" id="empty">Waiting for experiments in the artifacts folder…</div>
+
+  <div id="content" hidden>
+    <div class="banner" id="banner">
+      <div class="state"><span class="icon" id="banner-icon">…</span><span id="banner-state">waiting</span></div>
+      <div class="meta"><span class="id" id="banner-id"></span></div>
+      <div class="meta" id="banner-detail"></div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h2>Edge health <span class="actions">
+        <button id="btn-dossier" type="button">Download JSON Dossier</button>
+        <button id="btn-diff" type="button">Copy Suggested Diff</button>
+        <button id="btn-ack" type="button" class="primary">Acknowledge Issue</button>
+      </span></h2>
+      <div class="charts" id="charts"></div>
+      <details style="margin-top:10px">
+        <summary>Table view</summary>
+        <div class="table-wrap"><table id="health-table"></table></div>
+      </details>
+    </div>
+
+    <div class="agents" style="margin-top:16px">
+      <div class="card">
+        <h2>Red Agent <span class="chip"><span class="dot" style="background:var(--critical)"></span>adversary</span></h2>
+        <div id="red"></div>
+      </div>
+      <div class="card">
+        <h2>Blue Agent <span class="chip"><span class="dot" style="background:var(--series-1)"></span>guardian</span></h2>
+        <div id="blue"></div>
+      </div>
+    </div>
+  </div>
+</main>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+const POLL_MS = 2000;
+const API = "/api/v1/experiments";
+let experiments = [];
+let selected = decodeURIComponent(location.hash.slice(1)) || null;
+let current = null;
+
+// ---------------------------------------------------------------- tiny DOM helpers (text only, never innerHTML for data)
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") node.className = v; else if (k === "style") node.style.cssText = v; else node.setAttribute(k, v);
+  }
+  for (const c of children.flat()) if (c != null) node.append(c instanceof Node ? c : String(c));
+  return node;
+}
+const waiting = (what = "waiting") => el("span", { class: "waiting" }, what);
+function fmtTime(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return isNaN(d) ? iso : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+function fmtNum(v, digits = 2) { return v == null ? "–" : Number(v).toFixed(digits); }
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast._h); toast._h = setTimeout(() => t.classList.remove("show"), 2200);
+}
+function chip(label, tone) { return el("span", { class: `chip ${tone || ""}` }, el("span", { class: "dot" }), label); }
+
+const STATUS_TONE = { RUNNING: "running", COMPLETED: "good", ABORTED: "critical", NO_GO: "warning", FAILED: "critical", PLANNED: "" };
+const VERDICT_TONE = { STEADY_STATE_MAINTAINED: "good", DEGRADED_NO_ABORT: "warning", ABORT_TRIGGERED: "critical" };
+const PRIORITY_TONE = { HIGH: "critical", MEDIUM: "serious", LOW: "warning", INFO: "good" };
+const ICON = { good: "✓", critical: "!", warning: "!", running: "▶", "": "…" };
+
+// ---------------------------------------------------------------- polling
+async function getJSON(url) {
+  const r = await fetch(url, { cache: "no-store" });
+  if (!r.ok) throw new Error(`${r.status}`);
+  return r.json();
+}
+async function poll() {
+  try {
+    experiments = await getJSON(API);
+    setConn(true);
+    renderSelect();
+    if (!selected || !experiments.some(e => e.experiment_id === selected)) selected = experiments[0]?.experiment_id || null;
+    if (selected) current = await getJSON(`${API}/${encodeURIComponent(selected)}`);
+    else current = null;
+    render();
+  } catch (e) {
+    setConn(false);
+  } finally {
+    setTimeout(poll, POLL_MS);
+  }
+}
+function setConn(ok) {
+  const c = document.getElementById("conn");
+  c.className = `chip ${ok ? "good" : "critical"}`;
+  c.lastChild.textContent = ok ? "live · 2 s" : "console unreachable";
+}
+function renderSelect() {
+  const sel = document.getElementById("exp-select");
+  const want = experiments.map(e => e.experiment_id).join("|");
+  if (sel.dataset.ids !== want) {
+    sel.replaceChildren(...experiments.map(e => el("option", { value: e.experiment_id }, `${e.experiment_id} · ${e.status}`)));
+    sel.dataset.ids = want;
+  } else {
+    experiments.forEach((e, i) => { sel.options[i].textContent = `${e.experiment_id} · ${e.status}`; });
+  }
+  if (selected) sel.value = selected;
+}
+document.getElementById("exp-select").addEventListener("change", e => {
+  selected = e.target.value; location.hash = encodeURIComponent(selected);
+  getJSON(`${API}/${encodeURIComponent(selected)}`).then(d => { current = d; render(); }).catch(() => setConn(false));
+});
+
+// ---------------------------------------------------------------- render
+function render() {
+  document.getElementById("empty").hidden = !!current;
+  document.getElementById("content").hidden = !current;
+  if (!current) return;
+  renderBanner(); renderCharts(); renderRed(); renderBlue(); renderButtons();
+}
+
+function renderBanner() {
+  const { ExperimentPlan: plan, InjectionReceipt: rc, RootCauseAnalysis: rca, AbortSignal: ab, Quarantine: q } = current;
+  let state = "Planned, waiting for injection", tone = "";
+  if (rc) { state = { RUNNING: "Injection running", COMPLETED: "Injection completed", ABORTED: "Aborted by the Blue Agent",
+                      NO_GO: "Canary NO_GO, injection stopped", FAILED: "Injection failed" }[rc.status] || rc.status;
+            tone = STATUS_TONE[rc.status] || ""; }
+  if (rca && rc && rc.status !== "RUNNING") {
+    const v = { STEADY_STATE_MAINTAINED: "steady state maintained", DEGRADED_NO_ABORT: "degraded, no abort",
+                ABORT_TRIGGERED: "abort triggered" }[rca.verdict];
+    state += ` · ${v}`;
+    tone = VERDICT_TONE[rca.verdict] || tone;
+  }
+  const b = document.getElementById("banner");
+  b.className = `banner ${tone}`;
+  const icon = document.getElementById("banner-icon");
+  icon.className = `icon ${tone}`; icon.textContent = ICON[tone] ?? "…";
+  document.getElementById("banner-state").textContent = state;
+  document.getElementById("banner-id").textContent = current.experiment_id;
+  const parts = [];
+  if (plan) parts.push(`target ${plan.target_node.service_name}`);
+  if (ab) parts.push(`breached ${ab.breached_metric} (${ab.observed_value} vs ${ab.threshold}) at ${fmtTime(ab.aborted_at)}`);
+  if (q) parts.push("QUARANTINED: further injections blocked until acknowledged");
+  document.getElementById("banner-detail").textContent = parts.join(" · ");
+}
+
+function kv(rows) {
+  return el("dl", {}, rows.flatMap(([k, v]) => [el("dt", {}, k), el("dd", {}, v == null || v === "" ? waiting() : v)]));
+}
+
+function renderRed() {
+  const { ExperimentPlan: plan, InjectionReceipt: rc, CanaryVerdict: cv, AbortSignal: ab } = current;
+  const box = document.getElementById("red");
+  if (!plan) { box.replaceChildren(waiting()); return; }
+  const fp = plan.fault_profile;
+  const params = Object.entries(fp.parameters || {}).map(([k, v]) => `${k}=${v}`).join(", ");
+  const end = ab ? `aborted ${fmtTime(ab.aborted_at)}` : rc?.timestamps?.ended_at ? `ended ${fmtTime(rc.timestamps.ended_at)}` : null;
+  box.replaceChildren(kv([
+    ["Target", `${plan.target_node.service_name} (${plan.target_node.namespace}/${plan.target_node.deployment})`],
+    ["Fault", `${fp.category} / ${fp.action}`],
+    ["Parameters", params],
+    ["Pod scope", rc ? `${rc.execution_details.pod_scope} · ${rc.execution_details.target_pod}` :
+                  `${plan.target_node.targetable_replicas} of ${plan.target_node.replicas_total} replicas (planned)`],
+    ["Applied", rc ? el("span", { class: "mono" }, rc.execution_details.fault_applied) : null],
+    ["Start", rc ? fmtTime(rc.timestamps.initiated_at) : null],
+    ["Hard timeout", rc ? fmtTime(rc.timestamps.hard_timeout_at) : null],
+    ["Abort / end", end || (rc && rc.status === "RUNNING" ? "running" : null)],
+    ["Canary", cv ? el("span", {}, chip(cv.decision, cv.decision === "GO" ? "good" : "warning"), " ", cv.reason) : null],
+    ["Status", rc ? chip(rc.status, STATUS_TONE[rc.status]) : null],
+  ]));
+}
+
+function renderDiff(diff) {
+  const pre = el("pre");
+  for (const line of diff.replace(/\n$/, "").split("\n")) {
+    const cls = line.startsWith("+++") || line.startsWith("---") ? "hunk" : line.startsWith("@@") ? "hunk"
+              : line.startsWith("+") ? "add" : line.startsWith("-") ? "del" : null;
+    pre.append(cls ? el("span", { class: cls }, line) : line + "\n");
+  }
+  return pre;
+}
+
+function renderBlue() {
+  const { RootCauseAnalysis: rca, Recommendation: rec, ResilienceAudit: audit } = current;
+  const box = document.getElementById("blue");
+  const rcaBlock = el("section", { class: "block" }, el("h3", {}, "Root cause"));
+  if (!rca) rcaBlock.append(waiting());
+  else {
+    const iso = rca.root_cause_isolation;
+    rcaBlock.append(kv([
+      ["Verdict", chip(rca.verdict, VERDICT_TONE[rca.verdict])],
+      ["Impact", `lowest checkout success ${fmtNum(rca.impact_summary.lowest_checkout_success_rate)}% · peak p99 ${fmtNum(rca.impact_summary.peak_p99_latency_ms, 1)} ms`],
+      ["Faulty service", iso ? iso.faulty_service : "none: steady state held"],
+      ["Mechanism", iso ? iso.mechanism : "–"],
+    ]));
+    if (iso?.stack_trace_snippet) rcaBlock.append(el("div", { style: "margin-top:8px" }, el("pre", {}, iso.stack_trace_snippet)));
+  }
+  const cascade = el("section", { class: "block" }, el("h3", {}, "Cascade path"));
+  if (!rca) cascade.append(waiting());
+  else if (!rca.cascade_path.length) cascade.append(el("span", { class: "waiting" }, "no cascade observed"));
+  else cascade.append(el("ol", { class: "cascade" }, [...rca.cascade_path].sort((a, b) => a.hop - b.hop).map(h =>
+    el("li", {}, el("span", { class: "hop" }, h.hop), el("div", {}, el("div", { class: "svc" }, h.service), el("div", { class: "what" }, h.manifestation))))));
+
+  const fix = el("section", { class: "block" }, el("h3", {}, "Recommended fix"));
+  if (!rec) fix.append(waiting());
+  else {
+    fix.append(kv([
+      ["Priority", chip(rec.priority, PRIORITY_TONE[rec.priority])],
+      ["Vulnerability", rec.vulnerability_type],
+      ["Where", rec.target_file ? el("span", { class: "mono" }, `${rec.target_file} · ${rec.target_symbol || ""}`) : "–"],
+      ["Summary", rec.summary],
+      ["Guidance", rec.architectural_guidance],
+      ["Verify with", el("span", { class: "mono" }, rec.verification_command)],
+    ]));
+    if (audit?.controls) {
+      fix.append(el("h3", { style: "margin-top:12px" }, "Resilience audit"),
+        el("ul", { class: "checks" }, audit.controls.map(c => el("li", {},
+          el("span", { class: `icon ${c.present ? "good" : "critical"}`, "aria-hidden": "true" }, c.present ? "✓" : "✕"),
+          el("span", {}, `${c.name.replace("_", " ")}: ${c.present ? "present" : "missing"}`),
+          el("span", { class: "ev" }, c.evidence)))));
+    }
+    if (rec.suggested_diff) fix.append(el("h3", { style: "margin-top:12px" }, "Suggested diff"), renderDiff(rec.suggested_diff));
+  }
+  box.replaceChildren(rcaBlock, cascade, fix);
+}
+
+function renderButtons() {
+  document.getElementById("btn-diff").disabled = !current.Recommendation?.suggested_diff;
+  document.getElementById("btn-ack").disabled = !current.Quarantine;
+}
+
+// ---------------------------------------------------------------- charts (inline SVG, one y-axis each, shared time axis)
+const SVGNS = "http://www.w3.org/2000/svg";
+function s(tag, attrs = {}) { const n = document.createElementNS(SVGNS, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); return n; }
+function niceTicks(lo, hi, n = 4) {
+  const span = hi - lo || 1, step0 = span / n, mag = 10 ** Math.floor(Math.log10(step0));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(st => span / st <= n) || step0;
+  const out = []; for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(+v.toFixed(6));
+  return out;
+}
+
+function renderCharts() {
+  const { HealthSeries: hs, ExperimentPlan: plan, AbortSignal: ab, InjectionReceipt: rc } = current;
+  const wrap = document.getElementById("charts");
+  const table = document.getElementById("health-table");
+  if (!Array.isArray(hs) || !hs.length) {
+    wrap.replaceChildren(el("div", { class: "waiting", style: "padding:24px 0" }, "waiting for HealthSeries.json"));
+    table.replaceChildren(); return;
+  }
+  const pts = hs.map(p => ({ ...p, ts: Date.parse(p.t) })).filter(p => !isNaN(p.ts)).sort((a, b) => a.ts - b.ts);
+  const marks = [];
+  if (rc) marks.push({ ts: Date.parse(rc.timestamps.initiated_at), label: "injection start", tone: "var(--text-muted)" });
+  if (ab) marks.push({ ts: Date.parse(ab.aborted_at), label: "abort", tone: "var(--critical)", strong: true });
+  const xs = [...pts.map(p => p.ts), ...marks.map(m => m.ts)].filter(Number.isFinite);
+  let x0 = Math.min(...xs), x1 = Math.max(...xs); if (x1 === x0) { x0 -= 5000; x1 += 5000; }
+  const base = plan?.steady_state_baseline, thr = plan?.abort_thresholds;
+  const specs = [
+    { key: "checkout_success_rate_percent", title: "Checkout success rate", unit: "%", digits: 2,
+      baseline: base?.checkout_success_rate_percent, limit: thr?.min_checkout_success_rate_percent, limitLabel: "SLO", lower: true },
+    { key: "p99_latency_ms", title: "Edge p99 latency", unit: " ms", digits: 1,
+      baseline: base?.p99_latency_ms, limit: thr?.max_p99_latency_ms, limitLabel: "abort threshold", lower: false },
+    { key: "error_rate_percent", title: "Error rate", unit: "%", digits: 2,
+      baseline: base?.global_error_rate_percent, limit: thr?.max_error_rate_percent, limitLabel: "abort threshold", lower: false },
+  ];
+  const band = rc ? [Date.parse(rc.timestamps.initiated_at), Date.parse(rc.timestamps.ended_at || (ab && ab.aborted_at) || pts.at(-1).t)] : null;
+  wrap.replaceChildren(...specs.map(spec => chart(spec, pts, marks, band, x0, x1)));
+
+  table.replaceChildren(
+    el("thead", {}, el("tr", {}, el("th", {}, "time"), el("th", {}, "checkout %"), el("th", {}, "p99 ms"), el("th", {}, "error %"))),
+    el("tbody", {}, pts.map(p => el("tr", {}, el("td", {}, fmtTime(p.t)), el("td", {}, fmtNum(p.checkout_success_rate_percent)),
+      el("td", {}, fmtNum(p.p99_latency_ms, 1)), el("td", {}, fmtNum(p.error_rate_percent))))));
+}
+
+function chart(spec, pts, marks, band, x0, x1) {
+  const box = el("div", { class: "chart" });
+  const legend = el("span", { class: "legend" },
+    spec.baseline != null ? el("span", {}, el("span", { class: "sw", style: "border-top-style:dashed;border-color:var(--text-secondary)" }), `baseline ${fmtNum(spec.baseline, spec.digits)}${spec.unit}`) : null,
+    spec.limit != null ? el("span", {}, el("span", { class: "sw", style: "border-top-style:dashed;border-color:var(--critical)" }), `${spec.limitLabel} ${fmtNum(spec.limit, spec.digits)}${spec.unit}`) : null,
+    band ? el("span", {}, el("span", { class: "sw", style: "border-top:8px solid var(--band);vertical-align:-2px" }), "injection window") : null);
+  const head = el("div", { class: "chart-title" }, el("span", {}, spec.title), legend);
+  const W = Math.max(320, document.getElementById("charts").clientWidth || 800), H = 180;
+  const m = { l: 52, r: 12, t: 20, b: 22 };
+  const vals = pts.map(p => p[spec.key]).filter(v => v != null);
+  const refs = [spec.baseline, spec.limit].filter(v => v != null);
+  let y0 = Math.min(...vals, ...refs), y1 = Math.max(...vals, ...refs);
+  if (spec.key === "checkout_success_rate_percent") { y1 = Math.min(100, Math.max(y1, 100)); y0 = Math.max(0, y0 - (y1 - y0) * 0.15 - 0.05); }
+  else { y0 = 0; y1 = y1 * 1.12 || 1; }
+  const X = t => m.l + (t - x0) / (x1 - x0) * (W - m.l - m.r);
+  const Y = v => m.t + (1 - (v - y0) / (y1 - y0 || 1)) * (H - m.t - m.b);
+  const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": `${spec.title} over time` });
+
+  for (const v of niceTicks(y0, y1)) {
+    svg.append(s("line", { x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), stroke: "var(--grid)", "stroke-width": 1 }));
+    const t = s("text", { x: m.l - 6, y: Y(v) + 4, "text-anchor": "end" }); t.textContent = `${+v.toFixed(2)}`; svg.append(t);
+  }
+  const span = x1 - x0;
+  for (let i = 0; i <= 4; i++) {
+    const ts = x0 + span * i / 4;
+    const t = s("text", { x: X(ts), y: H - 4, "text-anchor": i === 0 ? "start" : i === 4 ? "end" : "middle" });
+    t.textContent = fmtTime(new Date(ts).toISOString()); svg.append(t);
+  }
+  if (band && band.every(Number.isFinite)) {
+    const b0 = X(Math.max(band[0], x0)), b1 = X(Math.min(band[1], x1));
+    if (b1 > b0) svg.append(s("rect", { x: b0, y: m.t, width: b1 - b0, height: H - m.t - m.b, fill: "var(--band)" }));
+  }
+  if (spec.baseline != null) svg.append(s("line", { x1: m.l, x2: W - m.r, y1: Y(spec.baseline), y2: Y(spec.baseline), stroke: "var(--text-secondary)", "stroke-width": 1.5, "stroke-dasharray": "4 4" }));
+  if (spec.limit != null) svg.append(s("line", { x1: m.l, x2: W - m.r, y1: Y(spec.limit), y2: Y(spec.limit), stroke: "var(--critical)", "stroke-width": 1.5, "stroke-dasharray": "6 4" }));
+  for (const mk of marks) {
+    if (!Number.isFinite(mk.ts)) continue;
+    svg.append(s("line", { x1: X(mk.ts), x2: X(mk.ts), y1: m.t, y2: H - m.b, stroke: mk.tone, "stroke-width": mk.strong ? 2 : 1, "stroke-dasharray": mk.strong ? "" : "2 3" }));
+    const t = s("text", { x: X(mk.ts) + 4, y: m.t - 6, style: `fill:${mk.tone};font-weight:${mk.strong ? 600 : 400}` });
+    t.textContent = mk.label; svg.append(t);
+  }
+  const d = pts.filter(p => p[spec.key] != null).map((p, i) => `${i ? "L" : "M"}${X(p.ts).toFixed(1)},${Y(p[spec.key]).toFixed(1)}`).join("");
+  svg.append(s("path", { d, fill: "none", stroke: "var(--series-1)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+  if (pts.length <= 40) for (const p of pts) if (p[spec.key] != null) {
+    const breach = spec.limit != null && (spec.lower ? p[spec.key] < spec.limit : p[spec.key] > spec.limit);
+    svg.append(s("circle", { cx: X(p.ts), cy: Y(p[spec.key]), r: 4, fill: breach ? "var(--critical)" : "var(--series-1)", stroke: "var(--surface-1)", "stroke-width": 2 }));
+  }
+
+  // crosshair + tooltip
+  const hair = s("line", { y1: m.t, y2: H - m.b, stroke: "var(--text-muted)", "stroke-width": 1, visibility: "hidden" });
+  const dot = s("circle", { r: 5, fill: "var(--series-1)", stroke: "var(--surface-1)", "stroke-width": 2, visibility: "hidden" });
+  const hit = s("rect", { x: m.l, y: 0, width: W - m.l - m.r, height: H, fill: "transparent" });
+  svg.append(hair, dot, hit);
+  const tip = el("div", { class: "tooltip" });
+  hit.addEventListener("pointermove", ev => {
+    const r = svg.getBoundingClientRect(), px = (ev.clientX - r.left) * W / r.width;
+    const ts = x0 + (px - m.l) / (W - m.l - m.r) * (x1 - x0);
+    const p = pts.reduce((a, b) => Math.abs(b.ts - ts) < Math.abs(a.ts - ts) ? b : a);
+    const cx = X(p.ts), cy = Y(p[spec.key]);
+    hair.setAttribute("x1", cx); hair.setAttribute("x2", cx); hair.setAttribute("visibility", "visible");
+    dot.setAttribute("cx", cx); dot.setAttribute("cy", cy); dot.setAttribute("visibility", "visible");
+    tip.replaceChildren(el("div", {}, fmtTime(p.t)), el("div", {}, el("b", {}, `${fmtNum(p[spec.key], spec.digits)}${spec.unit}`), ` ${spec.title.toLowerCase()}`));
+    tip.style.display = "block";
+    const left = cx / W * r.width;
+    tip.style.left = `${Math.min(left + 10, r.width - tip.offsetWidth)}px`; tip.style.top = `${Math.max(0, cy / H * r.height - 40)}px`;
+  });
+  hit.addEventListener("pointerleave", () => { hair.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); tip.style.display = "none"; });
+  box.append(svg, tip);
+  return el("div", {}, head, box);
+}
+
+// ---------------------------------------------------------------- actions
+document.getElementById("btn-dossier").addEventListener("click", () => {
+  if (!current) return;
+  const blob = new Blob([JSON.stringify(current, null, 2)], { type: "application/json" });
+  const a = el("a", { href: URL.createObjectURL(blob), download: `${current.experiment_id}-dossier.json` });
+  document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+document.getElementById("btn-diff").addEventListener("click", async () => {
+  const diff = current?.Recommendation?.suggested_diff;
+  if (!diff) return;
+  try { await navigator.clipboard.writeText(diff); toast("Suggested diff copied"); }
+  catch { const ta = el("textarea", { style: "position:fixed;opacity:0" }); ta.value = diff; document.body.append(ta); ta.select();
+          document.execCommand("copy"); ta.remove(); toast("Suggested diff copied"); }
+});
+document.getElementById("btn-ack").addEventListener("click", async () => {
+  if (!current) return;
+  const r = await fetch(`${API}/${encodeURIComponent(current.experiment_id)}/ack`, { method: "POST" });
+  const body = await r.json().catch(() => ({}));
+  toast(r.ok ? "Quarantine lifted: injections allowed again" : `Not acknowledged: ${body.error || r.status}`);
+});
+window.addEventListener("resize", () => { if (current) renderCharts(); });
+
+poll();
+</script>
+</body>
+</html>
