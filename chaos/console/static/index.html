@@ -61,6 +61,7 @@
   --diff-del: rgba(208, 59, 59, 0.2);
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body {
   margin: 0; background: var(--page); color: var(--text-primary);
   font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -281,7 +282,7 @@ function toast(msg) {
 }
 function chip(label, tone) { return el("span", { class: `chip ${tone || ""}` }, el("span", { class: "dot" }), label); }
 
-const STATUS_TONE = { RUNNING: "running", COMPLETED: "good", ABORTED: "critical", NO_GO: "warning", FAILED: "critical", PLANNED: "" };
+const STATUS_TONE = { STOPPED: "warning", RUNNING: "running", COMPLETED: "good", ABORTED: "critical", NO_GO: "warning", FAILED: "critical", PLANNED: "" };
 const VERDICT_TONE = { STEADY_STATE_MAINTAINED: "good", DEGRADED_NO_ABORT: "warning", ABORT_TRIGGERED: "critical" };
 const PRIORITY_TONE = { HIGH: "critical", MEDIUM: "serious", LOW: "warning", INFO: "good" };
 const ICON = { good: "✓", critical: "!", warning: "!", running: "▶", "": "…" };
@@ -342,6 +343,7 @@ function renderBanner() {
   if (rc) { state = { RUNNING: "Injection running", COMPLETED: "Injection completed", ABORTED: "Aborted by the Blue Agent",
                       NO_GO: "Canary NO_GO, injection stopped", FAILED: "Injection failed" }[rc.status] || rc.status;
             tone = STATUS_TONE[rc.status] || ""; }
+  if (current.ConsoleStop && (!rc || rc.status === "RUNNING")) { state = "Stopped by the operator"; tone = "warning"; }
   if (rca && rc && rc.status !== "RUNNING") {
     const v = { STEADY_STATE_MAINTAINED: "steady state maintained", DEGRADED_NO_ABORT: "degraded, no abort",
                 ABORT_TRIGGERED: "abort triggered" }[rca.verdict];
@@ -577,6 +579,7 @@ document.getElementById("btn-ack").addEventListener("click", async () => {
   const r = await POST(`${API}/${encodeURIComponent(current.experiment_id)}/ack`);
   const body = await r.json().catch(() => ({}));
   toast(r.ok ? "Quarantine lifted: injections allowed again" : `Not acknowledged: ${body.error || r.status}`);
+  if (r.ok) pollInject();
 });
 window.addEventListener("resize", () => { if (current) renderCharts(); });
 

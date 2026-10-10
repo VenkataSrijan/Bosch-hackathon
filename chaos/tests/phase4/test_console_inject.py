@@ -121,6 +121,7 @@ def test_live_stop_deletes_the_experiments_chaos(tmp_path):
             pass
 
     from console.runner import Run
+    (tmp_path / "exp-boutique-payment-123").mkdir()
     log = tmp_path / "run.log"
     log.write_text("[phase1] ...\nartifacts/exp-boutique-payment-123\n", encoding="utf-8")
     runner.run = Run(run_id="r", request={}, log_path=log, process=Proc())
@@ -136,3 +137,5 @@ def test_live_stop_deletes_the_experiments_chaos(tmp_path):
     assert calls[-1] == ["delete", "networkchaos,podchaos,stresschaos", "-n", "default", "-l",
                          "chaos.ai/experiment-id=exp-boutique-payment-123", "--now", "--ignore-not-found"]
     assert "exp-boutique-payment-123" in result["stop_note"]
+    record = json.loads((tmp_path / "exp-boutique-payment-123" / "ConsoleStop.json").read_text(encoding="utf-8"))
+    assert record["note"] == result["stop_note"]

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from common.config import get_settings
@@ -20,7 +21,12 @@ def main(argv: list[str] | None = None) -> int:
 
     settings = get_settings()
     root = (args.artifacts or (settings.artifacts_dir / "mock" if args.mock else settings.artifacts_dir)).resolve()
-    httpd = serve(root, args.host, args.port, mock=args.mock)
+    try:
+        httpd = serve(root, args.host, args.port, mock=args.mock)
+    except OSError as exc:
+        print(f"[console] cannot listen on {args.host}:{args.port} ({exc.strerror or exc}); "
+              f"another program may be using it, try --port 8090", file=sys.stderr)
+        return 1
     print(f"[console] reading {root}; injections run {'with --mock' if args.mock else 'live against the cluster'}")
     print(f"[console] open http://{'localhost' if args.host in ('127.0.0.1', '0.0.0.0') else args.host}:{args.port}")
     try:

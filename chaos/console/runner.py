@@ -24,6 +24,7 @@ from common.config import CHAOS_ROOT, get_settings
 from common.io import QUARANTINE
 
 RUNS_DIR = "_runs"
+CONSOLE_STOP = "ConsoleStop.json"  # the console's own record that an operator stopped this experiment
 EXPERIMENT_ID = re.compile(r"exp-[a-z0-9]+-[a-z0-9-]+-\d{3}")
 LABEL_KEY = "chaos.ai/experiment-id"
 CHAOS_KINDS = "networkchaos,podchaos,stresschaos"
@@ -272,6 +273,9 @@ class RunManager:
                     else f"stopped, but removing chaos resources FAILED: {out}"
             with open(run.log_path, "a", encoding="utf-8") as fh:
                 fh.write(f"[console] {run.stop_note}\n")
+            if eid and (self.root / eid).is_dir():
+                (self.root / eid / CONSOLE_STOP).write_text(json.dumps(
+                    {"experiment_id": eid, "stopped_at": _utcnow(), "note": run.stop_note}, indent=2), encoding="utf-8")
             return run.to_dict()
 
     def current(self) -> Optional[dict[str, Any]]:

@@ -21,7 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Optional
 
-from .runner import RunError, RunManager
+from .runner import CONSOLE_STOP, RunError, RunManager
 from common.io import (
     ABORT_SIGNAL, EXPERIMENT_PLAN, INJECTION_RECEIPT, QUARANTINE, RECOMMENDATION, ROOT_CAUSE_ANALYSIS,
 )
@@ -72,11 +72,14 @@ class Console:
             receipt = _load(exp / INJECTION_RECEIPT) or {}
             rca = _load(exp / ROOT_CAUSE_ANALYSIS) or {}
             rec = _load(exp / RECOMMENDATION) or {}
+            status = receipt.get("status", "PLANNED")
+            if status in ("PLANNED", "RUNNING") and (exp / CONSOLE_STOP).exists():
+                status = "STOPPED"  # the operator stopped it before Phase 2 could write a final receipt
             rows.append({
                 "experiment_id": exp.name,
                 "created_at": plan.get("created_at"),
                 "target": (plan.get("target_node") or {}).get("service_name"),
-                "status": receipt.get("status", "PLANNED"),
+                "status": status,
                 "verdict": rca.get("verdict"),
                 "priority": rec.get("priority"),
                 "aborted": (exp / ABORT_SIGNAL).exists(),
