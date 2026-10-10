@@ -1,0 +1,57 @@
+# RBAC for the Blue Agent's judge (Phase 3), namespace-scoped (default only).
+#
+# Requirement (master prompt): get/list on pods and pods/log, delete on networkchaos.chaos-mesh.org.
+# One addition: "list" on networkchaos, because the abort command
+#   kubectl delete networkchaos -n <namespace> -l chaos.ai/experiment-id=<experiment_id> --now
+# selects by label, and kubectl lists the matching objects before deleting them. Without it the
+# emergency abort is refused. No create, patch or update anywhere: the Blue Agent cannot deploy.
+#
+# Prometheus and Jaeger are read over HTTP (port-forward), not through the Kubernetes API.
+#
+# Apply with:  kubectl apply -f chaos/deploy/rbac/blue-agent.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: blue-agent
+  namespace: default
+  labels:
+    chaos.ai/agent: blue
+    chaos.ai/phase: "3"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: blue-agent
+  namespace: default
+  labels:
+    chaos.ai/agent: blue
+    chaos.ai/phase: "3"
+rules:
+  # Find the pods of each service in the cascade and read their logs for the experiment window.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get", "list"]
+  # Emergency abort: delete-only on chaos rules (list is needed for the label selector, see above).
+  - apiGroups: ["chaos-mesh.org"]
+    resources: ["networkchaos"]
+    verbs: ["list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: blue-agent
+  namespace: default
+  labels:
+    chaos.ai/agent: blue
+    chaos.ai/phase: "3"
+subjects:
+  - kind: ServiceAccount
+    name: blue-agent
+    namespace: default
+roleRef:
+  kind: Role
+  name: blue-agent
+  apiGroup: rbac.authorization.k8s.io

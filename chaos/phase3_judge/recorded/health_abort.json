@@ -1,0 +1,280 @@
+{
+ "description": "Synthetic recording in Phase 3's own replay format (one sample per second, offsets from the injection start). Canary burst (offsets 0-10 s) stays within the plan's limits -> GO; after the fault is re-applied the frontend p99 climbs and crosses 500 ms at 17 s -> abort; then recovery. Offset 20 has no data.",
+ "samples": [
+  {
+   "offset_s": 0,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 1,
+   "p99_latency_ms": 22.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 2,
+   "p99_latency_ms": 31.0,
+   "error_rate_percent": 0.03
+  },
+  {
+   "offset_s": 3,
+   "p99_latency_ms": 38.0,
+   "error_rate_percent": 0.03
+  },
+  {
+   "offset_s": 4,
+   "p99_latency_ms": 44.0,
+   "error_rate_percent": 0.03
+  },
+  {
+   "offset_s": 5,
+   "p99_latency_ms": 47.0,
+   "error_rate_percent": 0.04
+  },
+  {
+   "offset_s": 6,
+   "p99_latency_ms": 46.0,
+   "error_rate_percent": 0.03
+  },
+  {
+   "offset_s": 7,
+   "p99_latency_ms": 48.0,
+   "error_rate_percent": 0.03
+  },
+  {
+   "offset_s": 8,
+   "p99_latency_ms": 45.0,
+   "error_rate_percent": 0.03
+  },
+  {
+   "offset_s": 9,
+   "p99_latency_ms": 43.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 10,
+   "p99_latency_ms": 41.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 11,
+   "p99_latency_ms": 36.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 12,
+   "p99_latency_ms": 64.0,
+   "error_rate_percent": 0.03
+  },
+  {
+   "offset_s": 13,
+   "p99_latency_ms": 150.0,
+   "error_rate_percent": 0.05
+  },
+  {
+   "offset_s": 14,
+   "p99_latency_ms": 260.0,
+   "error_rate_percent": 0.07
+  },
+  {
+   "offset_s": 15,
+   "p99_latency_ms": 365.0,
+   "error_rate_percent": 0.09
+  },
+  {
+   "offset_s": 16,
+   "p99_latency_ms": 450.0,
+   "error_rate_percent": 0.11
+  },
+  {
+   "offset_s": 17,
+   "p99_latency_ms": 540.0,
+   "error_rate_percent": 0.12
+  },
+  {
+   "offset_s": 18,
+   "p99_latency_ms": 560.0,
+   "error_rate_percent": 0.12
+  },
+  {
+   "offset_s": 19,
+   "p99_latency_ms": 505.0,
+   "error_rate_percent": 0.1
+  },
+  {
+   "offset_s": 20,
+   "p99_latency_ms": null,
+   "error_rate_percent": null
+  },
+  {
+   "offset_s": 21,
+   "p99_latency_ms": 380.0,
+   "error_rate_percent": 0.07
+  },
+  {
+   "offset_s": 22,
+   "p99_latency_ms": 250.0,
+   "error_rate_percent": 0.05
+  },
+  {
+   "offset_s": 23,
+   "p99_latency_ms": 140.0,
+   "error_rate_percent": 0.04
+  },
+  {
+   "offset_s": 24,
+   "p99_latency_ms": 70.0,
+   "error_rate_percent": 0.03
+  },
+  {
+   "offset_s": 25,
+   "p99_latency_ms": 38.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 26,
+   "p99_latency_ms": 26.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 27,
+   "p99_latency_ms": 21.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 28,
+   "p99_latency_ms": 19.5,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 29,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 30,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 31,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 32,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 33,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 34,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 35,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 36,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 37,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 38,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 39,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 40,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 41,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 42,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 43,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 44,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 45,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 46,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 47,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 48,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 49,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 50,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 51,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 52,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 53,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  },
+  {
+   "offset_s": 54,
+   "p99_latency_ms": 19.0,
+   "error_rate_percent": 0.02
+  }
+ ]
+}
