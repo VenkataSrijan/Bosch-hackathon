@@ -1,0 +1,4 @@
+# Phase 2 (Autonomous Injection Engine) dependencies.
+# PyYAML is optional: it produces readable manifest YAML. Without it the engine
+# writes the manifest as JSON, which is valid YAML and applies the same way.
+PyYAML>=6

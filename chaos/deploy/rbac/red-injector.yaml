@@ -1,0 +1,57 @@
+# RBAC for the Red Agent's injector (Phase 2), namespace-scoped (default only).
+#
+# Core requirement (master prompt): create/get/list/delete on
+# networkchaos.chaos-mesh.org and get/list on pods. This file also grants:
+#   - podchaos / stresschaos: Phase 2 can synthesise these as stretch faults and
+#     must be able to delete them during cleanup.
+#   - get/list on deployments: the pre-flight check confirms the target
+#     deployment still has replicas_total ready pods before injecting.
+#
+# Apply with:  kubectl apply -f chaos/deploy/rbac/red-injector.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: red-injector
+  namespace: default
+  labels:
+    chaos.ai/agent: red
+    chaos.ai/phase: "2"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: red-injector
+  namespace: default
+  labels:
+    chaos.ai/agent: red
+    chaos.ai/phase: "2"
+rules:
+  # Discover the target pods and confirm steady state before injecting.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list"]
+  # Apply and remove the fault. networkchaos is the required kind; podchaos and
+  # stresschaos cover the stretch fault types this engine can also synthesise.
+  - apiGroups: ["chaos-mesh.org"]
+    resources: ["networkchaos", "podchaos", "stresschaos"]
+    verbs: ["create", "get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: red-injector
+  namespace: default
+  labels:
+    chaos.ai/agent: red
+    chaos.ai/phase: "2"
+subjects:
+  - kind: ServiceAccount
+    name: red-injector
+    namespace: default
+roleRef:
+  kind: Role
+  name: red-injector
+  apiGroup: rbac.authorization.k8s.io
