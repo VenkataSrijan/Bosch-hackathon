@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: red-observer
+  namespace: default
+  labels:
+    app.kubernetes.io/part-of: chaos-engineering-platform
+    chaos.ai/agent: red-agent
+    chaos.ai/phase: phase1-observation
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: red-observer-role
+  labels:
+    app.kubernetes.io/part-of: chaos-engineering-platform
+    chaos.ai/agent: red-agent
+rules:
+  # Strictly read-only cluster observation
+  - apiGroups: [""]
+    resources: ["services", "endpoints", "pods", "configmaps", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: red-observer-binding
+subjects:
+  - kind: ServiceAccount
+    name: red-observer
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: red-observer-role
+  apiGroup: rbac.authorization.k8s.io
