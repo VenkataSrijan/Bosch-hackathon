@@ -188,6 +188,13 @@ input:focus-visible, select:focus-visible, button:focus-visible, summary:focus-v
     <h2 id="inject-title">Inject a fault <span id="inject-mode" class="chip"><span class="dot"></span><span>…</span></span></h2>
     <form id="inject-form" novalidate>
       <div class="row">
+        <button type="button" id="inj-propose">🤖 Let the agent choose</button>
+        <span class="hint" style="flex:1 1 16rem">The Red Agent profiles the system and proposes a target and fault. Review it below, adjust if you want, then approve.</span>
+      </div>
+      <div class="confirm" id="inj-proposal" hidden style="border-color:var(--text-primary);background:var(--surface-2)">
+        <p id="inj-proposal-text"></p>
+      </div>
+      <div class="row">
         <label class="field" for="inj-target">Target service
           <select id="inj-target" name="target"></select></label>
         <fieldset class="faults" id="inj-faults"><legend>Fault</legend></fieldset>
@@ -646,6 +653,40 @@ function readForm() {
   if (lim !== "") r.max_p99_ms = Number(lim);
   return r;
 }
+function fillProposal(p) {
+  const r = p.request || {};
+  if (r.target) {
+    const sel = $id("inj-target");
+    if ([...sel.options].some(o => o.value === r.target && !o.disabled)) sel.value = r.target;
+  }
+  if (r.fault) {
+    const radio = document.querySelector(`#inj-faults input[value="${r.fault}"]`);
+    if (radio) { radio.checked = true; renderParams(); }
+  }
+  for (const name of ["delay_ms", "jitter_ms", "loss_percent"]) {
+    if (r[name] != null) { const inp = $id(`inj-${name}`); if (inp) inp.value = r[name]; }
+  }
+  if (r.duration != null) $id("inj-duration").value = r.duration;
+  $id("inj-limit").value = r.max_p99_ms != null ? r.max_p99_ms : "";
+  $id("inj-proposal-text").replaceChildren(
+    el("strong", {}, "🤖 Red Agent proposes"), el("br"),
+    `${describeRequest(r)}. Review and adjust above, then “Inject fault” to approve.`,
+    ...(p.rationale?.length ? [el("br"), el("small", { class: "mono", style: "color:var(--text-muted)" }, p.rationale.join("  ·  "))] : []),
+    ...(p.blocked_by?.length ? [el("br"), el("small", { style: "color:var(--critical)" }, "⚠ blocked until resolved: " + p.blocked_by.join("; "))] : []));
+  $id("inj-proposal").hidden = false;
+}
+$id("inj-propose").addEventListener("click", async () => {
+  if (!INJ.options) return;
+  const btn = $id("inj-propose"), label = btn.textContent;
+  btn.disabled = true; btn.textContent = "Agent is profiling…";
+  try {
+    const res = await POST("/api/v1/propose", {});
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) { toast(`Proposal failed: ${body.error || res.status}`); return; }
+    fillProposal(body);
+    toast("Agent proposed an experiment — review and approve");
+  } finally { btn.disabled = false; btn.textContent = label; }
+});
 $id("inject-form").addEventListener("submit", (e) => {
   e.preventDefault();
   if (!INJ.options) return;

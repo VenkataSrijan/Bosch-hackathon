@@ -5,6 +5,7 @@
   GET  /api/v1/experiments/{id}           every artifact that exists for that experiment, as one JSON object
   POST /api/v1/experiments/{id}/ack       deletes ../QUARANTINE.json (human acknowledgement lifts the quarantine)
   GET  /api/v1/inject                     faults, targets (with replica counts) and anything blocking a run
+  POST /api/v1/propose                    run Phase 1 only; the agent proposes a target+fault for the operator to approve
   POST /api/v1/runs                       start run_pipeline.py with {target, fault, parameters, duration, max_p99_ms}
   GET  /api/v1/runs/current               the current or last run: state, experiment id, log tail
   POST /api/v1/runs/current/stop          emergency stop: end the run and delete its chaos resources
@@ -186,6 +187,8 @@ def make_handler(console: Console) -> type[BaseHTTPRequestHandler]:
             if refused:
                 return self._json(403, {"error": refused})
             try:
+                if parts == ["api", "v1", "propose"]:
+                    return self._json(200, console.runner.propose(self._json_body(raw)))
                 if parts == ["api", "v1", "runs"]:
                     return self._json(202, console.runner.start(self._json_body(raw)))
                 if parts == ["api", "v1", "runs", "current", "stop"]:

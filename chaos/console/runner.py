@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from common.config import CHAOS_ROOT, get_settings
-from common.io import QUARANTINE
+from common.io import EXPERIMENT_PLAN, QUARANTINE
 
 RUNS_DIR = "_runs"
 CONSOLE_STOP = "ConsoleStop.json"  # the console's own record that an operator stopped this experiment
@@ -168,6 +168,67 @@ class RunManager:
         return {"mode": "mock" if self.mock else "live", "namespace": self.namespace, "faults": FAULTS,
                 "duration": DURATION, "targets": targets, "problems": problems,
                 "running": bool(current and current["state"] == "running")}
+
+    # ---------------------------------------------------------------- propose (agent decides, human approves)
+    def propose(self, body: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        """Run Phase 1 only (the Red Agent picks a target + fault) WITHOUT injecting.
+
+        The operator reviews the proposal and then approves it through the normal
+        POST /api/v1/runs path, so every safety rule still applies at injection time.
+        Phase 1 writes into a throwaway `_proposals/` dir, never the experiments list.
+        """
+        with self.lock:
+            if self.run and self.run.process.poll() is None:
+                raise RunError(409, f"run {self.run.run_id} is still going; wait for it or stop it")
+        out_dir = self.root / "_proposals"
+        shutil.rmtree(out_dir, ignore_errors=True)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        cmd = [self.python, "-u", "-m", "phase1_observation", "--out", str(out_dir)]
+        if self.mock:
+            cmd.append("--mock")
+        else:
+            cmd += ["--window", "2"]  # quick baseline just for the proposal; the approved run profiles again
+        env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+        try:
+            proc = subprocess.run(cmd, cwd=CHAOS_ROOT, capture_output=True, text=True, env=env, timeout=600)
+        except subprocess.TimeoutExpired:
+            raise RunError(504, "the agent took too long to build a proposal")
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout).strip()[-400:] or "unknown error"
+            raise RunError(502, f"the agent could not build a proposal: {detail}")
+        lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
+        exp_dir = Path(lines[-1].strip()) if lines else None
+        plan: Any = None
+        if exp_dir and (exp_dir / EXPERIMENT_PLAN).exists():
+            try:
+                plan = json.loads((exp_dir / EXPERIMENT_PLAN).read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                plan = None
+        if not isinstance(plan, dict):
+            raise RunError(502, "the agent produced no ExperimentPlan")
+
+        tn = plan.get("target_node") or {}
+        fp = plan.get("fault_profile") or {}
+        at = plan.get("abort_thresholds") or {}
+        params = fp.get("parameters") or {}
+        request: dict[str, Any] = {"target": tn.get("service_name"), "fault": fp.get("action")}
+        for key in ("delay_ms", "jitter_ms", "loss_percent"):
+            if params.get(key) is not None:
+                request[key] = params[key]
+        if fp.get("max_duration_seconds") is not None:
+            request["duration"] = fp["max_duration_seconds"]
+        if at.get("max_p99_latency_ms") is not None:
+            request["max_p99_ms"] = at["max_p99_latency_ms"]
+        rationale = [ln for ln in lines if ln.startswith("[phase1]") and "Wrote" not in ln]
+        return {
+            "proposed_by": "red-agent",
+            "experiment_id": plan.get("experiment_id"),
+            "request": request,
+            "steady_state_baseline": plan.get("steady_state_baseline"),
+            "abort_thresholds": at,
+            "rationale": rationale,
+            "blocked_by": self.readiness(),  # e.g. a standing quarantine that would block the approved run
+        }
 
     # ---------------------------------------------------------------- start / stop
     def _validate(self, body: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
