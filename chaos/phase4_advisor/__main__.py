@@ -1,29 +1,51 @@
-"""STUB for Phase 4 (Remediation Advisor). Replace with the real implementation.
+"""Phase 4: Remediation Advisor (Blue Agent).
 
-Copies fixtures/Recommendation.json into the experiment folder.
+Reads ExperimentPlan.json and RootCauseAnalysis.json from the experiment folder, localizes the weak call
+site in the repo, audits its resilience controls and writes Recommendation.json (plus ResilienceAudit.json
+and Recommendation.patch). Never edits src/.
 """
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
-from common.config import FIXTURES_DIR, REPO_ROOT
-from common.contracts import ExperimentPlan, Recommendation
-from common.io import EXPERIMENT_PLAN, RECOMMENDATION, read_json, read_model, write_artifact
+from common.config import REPO_ROOT
+from common.contracts import ExperimentPlan, RootCauseAnalysis
+from common.io import EXPERIMENT_PLAN, ROOT_CAUSE_ANALYSIS, read_model, write_artifact
+
+from .advisor import build_recommendation, write_audit
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="phase4_advisor", description=__doc__)
     parser.add_argument("--exp", type=Path, required=True, help="experiment folder")
     parser.add_argument("--repo", type=Path, default=REPO_ROOT, help="repository root")
-    parser.add_argument("--mock", action="store_true")
+    parser.add_argument("--mock", action="store_true", help="no LLM; deterministic templates only")
     args = parser.parse_args(argv)
 
+    for name in (EXPERIMENT_PLAN, ROOT_CAUSE_ANALYSIS):
+        if not (args.exp / name).exists():
+            print(f"[phase4] missing {args.exp / name}", file=sys.stderr)
+            return 1
+    if not (args.repo / "src").is_dir():
+        print(f"[phase4] {args.repo} has no src/ folder; pass the repository root with --repo", file=sys.stderr)
+        return 1
+
     plan = read_model(args.exp / EXPERIMENT_PLAN, ExperimentPlan)
-    data = read_json(FIXTURES_DIR / RECOMMENDATION)
-    data["experiment_id"] = plan.experiment_id
-    write_artifact(args.exp, Recommendation.model_validate(data))
-    print("[phase4 stub] wrote Recommendation from fixtures")
+    rca = read_model(args.exp / ROOT_CAUSE_ANALYSIS, RootCauseAnalysis)
+    rec, audit = build_recommendation(args.exp, args.repo.resolve(), plan, rca, use_llm=not args.mock)
+    write_audit(args.exp, audit, rec.suggested_diff)
+    write_artifact(args.exp, rec)
+
+    print(f"[phase4] {rec.priority.value} {rec.vulnerability_type}: {rec.summary}")
+    if rec.target_file:
+        print(f"[phase4] target {rec.target_file} {rec.target_symbol}")
+    patch = audit.get("patch") or {}
+    if rec.suggested_diff:
+        print(f"[phase4] suggested diff ({patch.get('source')}): {patch.get('check')}")
+    elif patch.get("check"):
+        print(f"[phase4] no diff: {patch.get('check')}", file=sys.stderr)
     return 0
 
 
