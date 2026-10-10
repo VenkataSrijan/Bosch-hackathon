@@ -28,9 +28,14 @@ Until a phase is merged, its folder holds a stub that copies the matching fixtur
 bash chaos/scripts/setup_cluster.sh            # kind + Istio + Prometheus + Jaeger + Online Boutique + Chaos Mesh
 kubectl -n istio-system port-forward svc/prometheus 9090:9090 &
 kubectl -n istio-system port-forward svc/tracing 16686:80 &
-cd chaos && python run_pipeline.py
-python -m console --artifacts artifacts --port 8080
+cd chaos && python -m console                  # http://localhost:8080: pick a target and a fault, watch the effect
+python run_pipeline.py                         # or from the command line (Phase 1 picks target and fault)
+python run_pipeline.py --target paymentservice --fault loss --loss-percent 30 --duration 90
 ```
+
+`setup_cluster.sh` is safe to re-run and works from Git Bash on Windows. `CLUSTER_NAME=<name>` reuses an existing
+kind cluster. It downloads helm and istioctl into `chaos/.tools` when missing, restarts pods that have no
+sidecar, and scales the checkout-path services to 2 replicas so they can be fault targets.
 
 ## Shared, frozen files
 
@@ -52,7 +57,7 @@ agrees. Phase branches never edit them.
 |---|---|
 | `KUBE_NAMESPACE` | `default` |
 | `PROMETHEUS_URL` | `http://localhost:9090` |
-| `JAEGER_URL` | `http://localhost:16686` |
+| `JAEGER_URL` | `http://localhost:16686/jaeger` (the Istio addon's base path) |
 | `ARTIFACTS_DIR` | `artifacts` (relative to `chaos/`) |
 | `SLO_CHECKOUT_SUCCESS_PERCENT` | `99.5` |
 | `SAFETY_ALPHA` | `0.10` |
@@ -65,7 +70,7 @@ agrees. Phase branches never edit them.
 ## Phase CLIs (run from `chaos/`)
 
 ```
-python -m phase1_observation --out <ARTIFACTS_DIR> [--mock]      # last stdout line = experiment folder
+python -m phase1_observation --out <ARTIFACTS_DIR> [--mock] [--target S] [--fault F] ...   # last stdout line = experiment folder
 python -m phase2_injection  --exp <experiment folder> [--mock]
 python -m phase3_judge      --exp <experiment folder> [--mock]
 python -m phase4_advisor    --exp <experiment folder> --repo <repo root> [--mock]

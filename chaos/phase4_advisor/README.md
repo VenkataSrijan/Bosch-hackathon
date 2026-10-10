@@ -48,11 +48,29 @@ Needs: Python 3.11+, `git` on PATH, `PyYAML` (`phase4_advisor/requirements.txt`)
 
 ```bash
 cd chaos
-python -m console --artifacts artifacts [--port 8080] [--host 127.0.0.1]
-# mock runs: python -m console --artifacts artifacts/mock
+python -m console                      # live: reads artifacts/, injects into the cluster in the current kube context
+python -m console --mock               # mock: reads artifacts/mock, injections run with --mock
+python -m console --artifacts <dir> [--port 8080] [--host 127.0.0.1]
 ```
 
-Standard library only. Reads nothing but the artifacts folder; never talks to Kubernetes or Chaos Mesh.
+Standard library only. The experiment views read only the artifacts folder. The **Inject a fault** panel starts
+`run_pipeline.py` with the chosen target and fault, so every safety rule of the phases still applies (two
+replicas, canary, abort limits, quarantine).
+
+**Inject a fault.**
+- **Choices:** a target service (only those with at least 2 replicas can be picked), a fault, its parameters,
+  the fault window, and optionally a tighter p99 abort limit.
+  - Network latency: delay and jitter.
+  - Packet loss: percent dropped.
+  - Pod kill.
+- **Confirm step:** the page asks for confirmation before anything is injected.
+- **While it runs:** the page follows the new experiment, so the charts show the effect live. The pipeline output
+  is under "Pipeline output".
+- **Emergency stop:** ends the pipeline's processes, then deletes every Chaos Mesh resource labelled with the
+  experiment id.
+- **Before a run:** the console checks that Prometheus and Jaeger answer at `PROMETHEUS_URL` / `JAEGER_URL` and
+  that no quarantine is active.
+- **Logs:** each run's output is kept in `<artifacts>/_runs/<run_id>.log`.
 
 | Endpoint | |
 |---|---|
@@ -60,6 +78,13 @@ Standard library only. Reads nothing but the artifacts folder; never talks to Ku
 | `GET /api/v1/experiments` | ids with status, verdict, priority, aborted, quarantined; newest first |
 | `GET /api/v1/experiments/{id}` | every JSON artifact present for that experiment, keyed by file name; `Quarantine` if it belongs to it |
 | `POST /api/v1/experiments/{id}/ack` | deletes `QUARANTINE.json`. 404 if there is none, 409 if it belongs to another experiment |
+| `GET /api/v1/inject` | faults with their parameters, targets with replica counts and eligibility, anything blocking a run |
+| `POST /api/v1/runs` | `{target, fault, delay_ms, jitter_ms, loss_percent, duration, max_p99_ms}`: starts a run (202). 400 bad request, 409 a run is going or a quarantine is active |
+| `GET /api/v1/runs/current` | the current or last run: state, experiment id, request, last 60 log lines |
+| `POST /api/v1/runs/current/stop` | emergency stop |
+
+POSTs must be `Content-Type: application/json`, and an `Origin` header, when sent, must be the console's own. So
+another website open in the same browser cannot start or stop an injection.
 
 The page polls every 2 s: status banner, three health charts from `HealthSeries.json` (checkout success rate,
 edge p99, error rate; each with the baseline, the abort threshold / SLO line, the injection window and the abort

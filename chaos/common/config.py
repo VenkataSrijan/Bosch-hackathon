@@ -40,7 +40,7 @@ def get_settings() -> Settings:
     return Settings(
         kube_namespace=_env("KUBE_NAMESPACE", "default"),
         prometheus_url=_env("PROMETHEUS_URL", "http://localhost:9090"),
-        jaeger_url=_env("JAEGER_URL", "http://localhost:16686"),
+        jaeger_url=_env("JAEGER_URL", "http://localhost:16686/jaeger"),  # Istio addon base path
         artifacts_dir=artifacts,
         slo_checkout_success_percent=float(_env("SLO_CHECKOUT_SUCCESS_PERCENT", "99.5")),
         safety_alpha=float(_env("SAFETY_ALPHA", "0.10")),

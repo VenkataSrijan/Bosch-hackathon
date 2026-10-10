@@ -67,6 +67,10 @@ class TopologyGraph:
         }
 
 
+class TopologyError(RuntimeError):
+    """Live topology discovery failed."""
+
+
 def build_topology(
     kube_namespace: str = "default",
     prometheus_url: str = "http://localhost:9090",
@@ -77,11 +81,11 @@ def build_topology(
     if mock:
         return _build_mock_topology(kube_namespace)
 
+    # Live mode reports only what was discovered: a Kubernetes failure is an error, never recorded data.
     try:
         return _build_live_topology(kube_namespace, prometheus_url, jaeger_url)
     except Exception as e:
-        logger.warning("Live discovery failed (%s); falling back to recorded topology", e)
-        return _build_mock_topology(kube_namespace)
+        raise TopologyError(f"live discovery of namespace {kube_namespace!r} failed: {e}") from e
 
 
 def _build_mock_topology(kube_namespace: str) -> TopologyGraph:
@@ -222,25 +226,9 @@ def _build_live_topology(
     except Exception as e:
         logger.warning("Prometheus edge query failed: %s", e)
 
-    # If no edges were returned by Prometheus (cold cluster), populate from known app manifests
+    # No measured edges (a cold mesh) stay empty: recorded edges would describe some other cluster.
     if not edges:
-        for e in RECORDED_TRAFFIC_EDGES:
-            src = e["source"]
-            dst = e["destination"]
-            if src in nodes and dst in nodes:
-                edges.append(
-                    DependencyEdge(
-                        source=src,
-                        destination=dst,
-                        rps=e["rps"],
-                        protocol="grpc",
-                        observed_via="static_fallback",
-                    )
-                )
-                if dst not in nodes[src].dependencies:
-                    nodes[src].dependencies.append(dst)
-                if src not in nodes[dst].callers:
-                    nodes[dst].callers.append(src)
+        logger.warning("Prometheus returned no service-to-service edges; topology has nodes only")
 
     for node in nodes.values():
         node.in_degree = len(node.callers)

@@ -61,6 +61,7 @@
   --diff-del: rgba(208, 59, 59, 0.2);
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body {
   margin: 0; background: var(--page); color: var(--text-primary);
   font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -151,6 +152,25 @@ th:first-child, td:first-child { text-align: left; }
   pointer-events: none; max-width: calc(100vw - 32px); }
 .toast.show { opacity: 1; }
 .empty { text-align: center; padding: 48px 16px; color: var(--text-secondary); }
+.inject { border-left: 6px solid var(--critical); }
+.inject form { display: grid; gap: 12px; }
+.inject .row { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: end; }
+.inject label.field { display: grid; gap: 4px; font-size: 12.5px; color: var(--text-secondary); }
+.inject input[type=number] { font: inherit; color: var(--text-primary); background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 8px; width: 7.5rem; }
+.inject .faults { display: flex; flex-wrap: wrap; gap: 6px; border: 0; padding: 0; margin: 0; }
+.inject .faults legend { font-size: 12.5px; color: var(--text-secondary); padding: 0; margin-bottom: 4px; }
+.inject .faults label { display: inline-flex; gap: 6px; align-items: center; padding: 6px 10px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--surface-2); cursor: pointer; }
+.inject .faults label:has(input:checked) { border-color: var(--text-primary); box-shadow: inset 0 0 0 1px var(--text-primary); }
+.inject .hint { font-size: 12.5px; color: var(--text-muted); margin: 0; }
+.inject .problems { margin: 0; padding-left: 18px; color: var(--critical); font-size: 13px; }
+.inject .confirm { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; border-radius: 6px;
+  background: var(--surface-2); border: 1px solid var(--border); }
+.inject .confirm p { margin: 0; flex: 1 1 18rem; }
+.inject .runline { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.inject pre.log { max-height: 220px; overflow: auto; white-space: pre-wrap; }
+input:focus-visible, select:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
 </style>
 </head>
 <body>
@@ -164,6 +184,37 @@ th:first-child, td:first-child { text-align: left; }
 </header>
 
 <main id="app">
+  <section class="card inject" id="inject" aria-labelledby="inject-title">
+    <h2 id="inject-title">Inject a fault <span id="inject-mode" class="chip"><span class="dot"></span><span>…</span></span></h2>
+    <form id="inject-form" novalidate>
+      <div class="row">
+        <label class="field" for="inj-target">Target service
+          <select id="inj-target" name="target"></select></label>
+        <fieldset class="faults" id="inj-faults"><legend>Fault</legend></fieldset>
+      </div>
+      <div class="row" id="inj-params"></div>
+      <div class="row">
+        <label class="field" for="inj-duration" id="inj-duration-wrap">Fault window, s
+          <input type="number" id="inj-duration" name="duration"></label>
+        <label class="field" for="inj-limit">Abort if frontend p99 exceeds, ms
+          <input type="number" id="inj-limit" name="max_p99_ms" min="1" placeholder="from baseline"></label>
+        <button type="submit" class="primary" id="inj-go">Inject fault</button>
+      </div>
+      <p class="hint" id="inj-hint">One pod is hit and at least one replica of the target stays untouched. A 10 s canary runs first; the Blue Agent aborts on any breach of the plan's limits.</p>
+      <ul class="problems" id="inj-problems" hidden></ul>
+      <div class="confirm" id="inj-confirm" hidden>
+        <p id="inj-confirm-text"></p>
+        <button type="button" class="primary" id="inj-confirm-go">Confirm and inject</button>
+        <button type="button" id="inj-confirm-cancel">Cancel</button>
+      </div>
+    </form>
+    <div id="inj-run" hidden style="margin-top:12px">
+      <div class="runline"><span id="inj-run-state"></span><span id="inj-run-exp" class="mono"></span>
+        <button type="button" id="inj-stop">Emergency stop</button></div>
+      <details style="margin-top:8px"><summary>Pipeline output</summary><pre class="log" id="inj-log"></pre></details>
+    </div>
+  </section>
+
   <div class="empty" id="empty">Waiting for experiments in the artifacts folder…</div>
 
   <div id="content" hidden>
@@ -231,7 +282,7 @@ function toast(msg) {
 }
 function chip(label, tone) { return el("span", { class: `chip ${tone || ""}` }, el("span", { class: "dot" }), label); }
 
-const STATUS_TONE = { RUNNING: "running", COMPLETED: "good", ABORTED: "critical", NO_GO: "warning", FAILED: "critical", PLANNED: "" };
+const STATUS_TONE = { STOPPED: "warning", RUNNING: "running", COMPLETED: "good", ABORTED: "critical", NO_GO: "warning", FAILED: "critical", PLANNED: "" };
 const VERDICT_TONE = { STEADY_STATE_MAINTAINED: "good", DEGRADED_NO_ABORT: "warning", ABORT_TRIGGERED: "critical" };
 const PRIORITY_TONE = { HIGH: "critical", MEDIUM: "serious", LOW: "warning", INFO: "good" };
 const ICON = { good: "✓", critical: "!", warning: "!", running: "▶", "": "…" };
@@ -292,6 +343,7 @@ function renderBanner() {
   if (rc) { state = { RUNNING: "Injection running", COMPLETED: "Injection completed", ABORTED: "Aborted by the Blue Agent",
                       NO_GO: "Canary NO_GO, injection stopped", FAILED: "Injection failed" }[rc.status] || rc.status;
             tone = STATUS_TONE[rc.status] || ""; }
+  if (current.ConsoleStop && (!rc || rc.status === "RUNNING")) { state = "Stopped by the operator"; tone = "warning"; }
   if (rca && rc && rc.status !== "RUNNING") {
     const v = { STEADY_STATE_MAINTAINED: "steady state maintained", DEGRADED_NO_ABORT: "degraded, no abort",
                 ABORT_TRIGGERED: "abort triggered" }[rca.verdict];
@@ -524,12 +576,130 @@ document.getElementById("btn-diff").addEventListener("click", async () => {
 });
 document.getElementById("btn-ack").addEventListener("click", async () => {
   if (!current) return;
-  const r = await fetch(`${API}/${encodeURIComponent(current.experiment_id)}/ack`, { method: "POST" });
+  const r = await POST(`${API}/${encodeURIComponent(current.experiment_id)}/ack`);
   const body = await r.json().catch(() => ({}));
   toast(r.ok ? "Quarantine lifted: injections allowed again" : `Not acknowledged: ${body.error || r.status}`);
+  if (r.ok) pollInject();
 });
 window.addEventListener("resize", () => { if (current) renderCharts(); });
 
+// ---------------------------------------------------------------- fault injection
+const INJ = { options: null, run: null, followed: null };
+const POST = (url, body) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+const $id = (x) => document.getElementById(x);
+
+function faultSpec() {
+  const id = document.querySelector("#inj-faults input:checked")?.value;
+  return INJ.options?.faults.find(f => f.id === id);
+}
+function renderParams() {
+  const f = faultSpec(), box = $id("inj-params");
+  const keep = Object.fromEntries([...box.querySelectorAll("input")].map(i => [i.name, i.value]));
+  box.replaceChildren(...(f?.params || []).map(p => el("label", { class: "field", for: `inj-${p.name}` }, `${p.label}, ${p.unit}`,
+    el("input", { type: "number", id: `inj-${p.name}`, name: p.name, min: p.min, max: p.max, value: keep[p.name] ?? p.default }))));
+  $id("inj-duration-wrap").hidden = f?.id === "pod-kill";
+}
+function renderInjectOptions() {
+  const o = INJ.options;
+  const mode = $id("inject-mode");
+  mode.className = `chip ${o.mode === "live" ? "critical" : ""}`;
+  mode.lastChild.textContent = o.mode === "live" ? `live · namespace ${o.namespace}` : "mock · no cluster";
+  const sel = $id("inj-target"), prev = sel.value;
+  const ids = o.targets.map(t => `${t.service}:${t.replicas}`).join("|");
+  if (sel.dataset.ids !== ids) {
+    sel.replaceChildren(...o.targets.map(t => {
+      const opt = el("option", { value: t.service }, `${t.service} (${t.replicas} replica${t.replicas === 1 ? "" : "s"})`);
+      if (!t.eligible) { opt.disabled = true; opt.title = t.reason; }
+      return opt;
+    }));
+    sel.dataset.ids = ids;
+    const pick = o.targets.find(t => t.service === prev && t.eligible)
+      || o.targets.find(t => t.service === "paymentservice" && t.eligible) || o.targets.find(t => t.eligible);
+    if (pick) sel.value = pick.service;
+  }
+  const fs = $id("inj-faults");
+  if (!fs.querySelector("input")) {
+    o.faults.forEach((f, i) => fs.append(el("label", {},
+      el("input", { type: "radio", name: "fault", value: f.id, ...(i === 0 ? { checked: "" } : {}) }), f.label)));
+    fs.addEventListener("change", renderParams);
+    const d = $id("inj-duration"); d.min = o.duration.min; d.max = o.duration.max; d.value = o.duration.default;
+    renderParams();
+  }
+  const probs = [...o.problems];
+  if (!o.targets.some(t => t.eligible)) probs.push("no service has 2 replicas; scale one first (kubectl scale deployment <name> --replicas=2)");
+  const ul = $id("inj-problems");
+  ul.replaceChildren(...probs.map(p => el("li", {}, p)));
+  ul.hidden = !probs.length;
+  $id("inj-go").disabled = !!probs.length || o.running;
+}
+function describeRequest(r) {
+  const what = r.fault === "latency" ? `${r.delay_ms} ms latency (±${r.jitter_ms} ms)`
+    : r.fault === "loss" ? `${r.loss_percent}% packet loss` : "a pod kill";
+  const span = r.fault === "pod-kill" || !r.duration ? "" : ` for ${r.duration} s`;
+  return `${what} on 1 ${r.target} pod${span}${r.max_p99_ms ? `, abort above ${r.max_p99_ms} ms p99` : ""}`;
+}
+function readForm() {
+  const r = { target: $id("inj-target").value, fault: faultSpec()?.id };
+  for (const i of $id("inj-params").querySelectorAll("input")) r[i.name] = i.value === "" ? null : Number(i.value);
+  if (r.fault !== "pod-kill") r.duration = Number($id("inj-duration").value);
+  const lim = $id("inj-limit").value;
+  if (lim !== "") r.max_p99_ms = Number(lim);
+  return r;
+}
+$id("inject-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  if (!INJ.options) return;
+  const r = readForm();
+  $id("inj-confirm-text").textContent =
+    `Inject ${describeRequest(r)}${INJ.options.mode === "live" ? " in the live cluster" : " (mock replay)"}?`;
+  $id("inj-confirm").hidden = false;
+  $id("inj-confirm-go").focus();
+});
+$id("inj-confirm-cancel").addEventListener("click", () => { $id("inj-confirm").hidden = true; });
+$id("inj-confirm-go").addEventListener("click", async () => {
+  $id("inj-confirm").hidden = true;
+  const r = await POST("/api/v1/runs", readForm());
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) { toast(`Not started: ${body.error || r.status}`); return; }
+  INJ.run = body; INJ.followed = null;
+  toast("Injection started: planning the experiment");
+  renderRun(); pollInject();
+});
+$id("inj-stop").addEventListener("click", async () => {
+  const r = await POST("/api/v1/runs/current/stop");
+  const body = await r.json().catch(() => ({}));
+  toast(r.ok ? body.stop_note : `Stop failed: ${body.error || r.status}`);
+  if (r.ok) { INJ.run = body; renderRun(); }
+});
+function renderRun() {
+  const run = INJ.run, box = $id("inj-run");
+  box.hidden = !run;
+  if (!run) return;
+  const tone = { running: "running", finished: "good", failed: "critical", stopped: "warning" }[run.state];
+  const label = { running: "Running", finished: "Finished", failed: "Failed", stopped: "Stopped" }[run.state];
+  $id("inj-run-state").replaceChildren(chip(`${label}: ${describeRequest(run.request)}`, tone));
+  $id("inj-run-exp").textContent = run.experiment_id || "planning…";
+  $id("inj-stop").hidden = run.state !== "running";
+  const log = $id("inj-log"), atEnd = log.scrollTop + log.clientHeight >= log.scrollHeight - 4;
+  log.textContent = run.log_tail.join("\n");
+  if (atEnd) log.scrollTop = log.scrollHeight;
+  // Follow the new experiment in the views below as soon as Phase 1 has written its plan.
+  if (run.experiment_id && INJ.followed !== run.experiment_id && experiments.some(e => e.experiment_id === run.experiment_id)) {
+    INJ.followed = run.experiment_id; selected = run.experiment_id; location.hash = encodeURIComponent(selected);
+    getJSON(`${API}/${encodeURIComponent(selected)}`).then(d => { current = d; renderSelect(); render(); }).catch(() => {});
+  }
+}
+async function pollInject() {
+  clearTimeout(pollInject._h);
+  try {
+    const [opts, cur] = await Promise.all([getJSON("/api/v1/inject"), getJSON("/api/v1/runs/current")]);
+    INJ.options = opts; INJ.run = cur.run;
+    renderInjectOptions(); renderRun();
+  } catch (e) { /* the main poll shows the connection state */ }
+  pollInject._h = setTimeout(pollInject, INJ.run?.state === "running" ? POLL_MS : 10000);
+}
+
+pollInject();
 poll();
 </script>
 </body>

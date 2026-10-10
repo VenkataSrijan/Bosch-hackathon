@@ -22,6 +22,35 @@ class TargetSelection:
     candidate_summary: list[dict[str, Any]]
 
 
+# Faults an operator can ask for, with their Chaos Mesh category and default parameters.
+# These are the kinds Phase 2 can synthesise and Phase 3 can remove on abort (NetworkChaos), plus
+# pod-kill, which is instantaneous and leaves nothing to remove.
+FAULTS: dict[str, tuple[str, dict[str, Any]]] = {
+    "latency": ("network", {"delay_ms": 250, "jitter_ms": 20}),
+    "loss": ("network", {"loss_percent": 30}),
+    "pod-kill": ("pod", {}),
+}
+
+
+def fault_parameters(action: str, overrides: dict[str, Any] | None = None) -> tuple[str, dict[str, Any]]:
+    """(category, parameters) for `action`, with operator overrides validated."""
+    if action not in FAULTS:
+        raise ValueError(f"unsupported fault {action!r}; choose one of: {', '.join(FAULTS)}")
+    category, defaults = FAULTS[action]
+    params = dict(defaults)
+    for key, value in (overrides or {}).items():
+        if value is None:
+            continue
+        if key not in defaults:
+            raise ValueError(f"fault {action!r} takes no parameter {key!r}")
+        params[key] = value
+    if action == "latency" and not (1 <= params["delay_ms"] <= 5000 and 0 <= params["jitter_ms"] <= params["delay_ms"]):
+        raise ValueError("latency needs 1 <= delay_ms <= 5000 and 0 <= jitter_ms <= delay_ms")
+    if action == "loss" and not (1 <= params["loss_percent"] <= 100):
+        raise ValueError("loss needs 1 <= loss_percent <= 100")
+    return category, params
+
+
 def select_target_and_fault(
     topology: TopologyGraph,
     category: str = "network",
@@ -29,8 +58,14 @@ def select_target_and_fault(
     delay_ms: int = 250,
     jitter_ms: int = 20,
     max_duration_seconds: int = 60,
+    target: str | None = None,
+    parameters: dict[str, Any] | None = None,
 ) -> TargetSelection:
-    """Ranks services and picks the most critical target with >= 2 replicas."""
+    """Ranks services and picks the most critical target with >= 2 replicas.
+
+    `target` forces the service (it must still have >= 2 replicas); `parameters` are the fault's own
+    parameters (see FAULTS) and replace delay_ms / jitter_ms when given.
+    """
     candidates: list[tuple[float, ServiceNode]] = []
     summary: list[dict[str, Any]] = []
 
@@ -70,6 +105,16 @@ def select_target_and_fault(
     # Sort descending by score
     candidates.sort(key=lambda x: x[0], reverse=True)
     best_score, chosen_node = candidates[0]
+    if target is not None:
+        if target not in topology.nodes:
+            raise ValueError(f"target {target!r} is not a deployment in this namespace "
+                             f"(found: {', '.join(sorted(topology.nodes))})")
+        chosen = [c for c in candidates if c[1].name == target]
+        if not chosen:
+            raise ValueError(
+                f"target {target!r} has {topology.nodes[target].capacity.replicas_total} replica(s); at least 2 are "
+                f"needed so one stays untouched (kubectl scale deployment {target} --replicas=2)")
+        best_score, chosen_node = chosen[0]
 
     # targetable_replicas = replicas_total - 1 at most
     targetable = max(1, min(1, chosen_node.capacity.replicas_total - 1))
@@ -82,14 +127,15 @@ def select_target_and_fault(
         targetable_replicas=targetable,
     )
 
+    if parameters is None:
+        fault_params: dict[str, Any] = {"delay_ms": delay_ms, "jitter_ms": jitter_ms}
+    else:
+        category, fault_params = fault_parameters(action, parameters)
+
     fault = FaultProfile(
         category=category,
         action=action,
-        parameters={
-            "delay_ms": delay_ms,
-            "jitter_ms": jitter_ms,
-            "target_pods": targetable,
-        },
+        parameters={**fault_params, "target_pods": targetable},
         ramp_strategy="canary_stepped",
         max_duration_seconds=max_duration_seconds,
     )
@@ -108,9 +154,10 @@ def select_target_and_fault(
 def _generate_hypothesis(node: ServiceNode, fault: FaultProfile) -> str:
     """Generates an experiment hypothesis using LLM if available, else deterministic template."""
     system = "You are a Red Agent chaos engineering architect. Formulate a 1-sentence falsifiable resilience hypothesis."
+    what = describe_fault(fault)
     user = (
         f"Target: {node.name} (replicas: {node.capacity.replicas_total}, callers: {', '.join(node.callers) or 'ingress'}). "
-        f"Injected Fault: {fault.parameters.get('delay_ms')}ms delay ({fault.parameters.get('jitter_ms')}ms jitter) on {fault.parameters.get('target_pods')} replica. "
+        f"Injected fault: {what} on {fault.parameters.get('target_pods')} replica. "
         f"Hypothesis on upstream resilience and circuit breaking:"
     )
 
@@ -122,6 +169,17 @@ def _generate_hypothesis(node: ServiceNode, fault: FaultProfile) -> str:
         logger.info("LLM unavailable (%s); using deterministic hypothesis", e)
 
     return (
-        f"Injecting {fault.parameters.get('delay_ms')}ms latency into {fault.parameters.get('target_pods')} of {node.capacity.replicas_total} "
-        f"{node.name} replicas tests whether upstream callers isolate socket delays or suffer cascading timeout collapse."
+        f"Injecting {what} into {fault.parameters.get('target_pods')} of {node.capacity.replicas_total} "
+        f"{node.name} replicas tests whether upstream callers isolate the failure or suffer a cascading collapse."
     )
+
+
+def describe_fault(fault: FaultProfile) -> str:
+    p = fault.parameters
+    if fault.action == "latency":
+        return f"{p.get('delay_ms')}ms latency ({p.get('jitter_ms')}ms jitter)"
+    if fault.action == "loss":
+        return f"{p.get('loss_percent')}% packet loss"
+    if fault.action == "pod-kill":
+        return "a pod kill"
+    return f"{fault.category}/{fault.action}"

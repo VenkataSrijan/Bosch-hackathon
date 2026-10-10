@@ -2,6 +2,10 @@
 
   python run_pipeline.py --mock      no cluster, no API key (artifacts go to <ARTIFACTS_DIR>/mock)
   python run_pipeline.py             live, against the cluster in the current kube context
+  python run_pipeline.py --target paymentservice --fault loss --loss-percent 30 --duration 90
+
+Fault options (--target, --fault, --delay-ms, --jitter-ms, --loss-percent, --duration, --max-p99-ms) go to
+Phase 1; without them Phase 1 picks the target and a 250 ms latency fault itself.
 
 1. Phase 1 writes ExperimentPlan.json and prints the experiment folder.
 2. Phase 3 starts in the background and waits for InjectionReceipt.json.
@@ -41,7 +45,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--artifacts", type=Path, default=None,
                         help="artifacts root (default: ARTIFACTS_DIR, or ARTIFACTS_DIR/mock with --mock)")
     parser.add_argument("--repo", type=Path, default=REPO_ROOT, help="repository root passed to Phase 4")
+    fault = parser.add_argument_group("fault (passed to Phase 1)")
+    fault.add_argument("--target", help="service to inject into (needs at least 2 replicas)")
+    fault.add_argument("--fault", choices=["latency", "loss", "pod-kill"])
+    fault.add_argument("--delay-ms", type=int)
+    fault.add_argument("--jitter-ms", type=int)
+    fault.add_argument("--loss-percent", type=int)
+    fault.add_argument("--duration", type=int, help="fault window in seconds (default 60)")
+    fault.add_argument("--max-p99-ms", type=float, help="abort if frontend p99 exceeds this")
     args = parser.parse_args(argv)
+    phase1_opts: list[str] = []
+    for name in ("target", "fault", "delay_ms", "jitter_ms", "loss_percent", "duration", "max_p99_ms"):
+        value = getattr(args, name)
+        if value is not None:
+            phase1_opts += [f"--{name.replace('_', '-')}", str(value)]
 
     settings = get_settings()
     root = (args.artifacts or (settings.artifacts_dir / "mock" if args.mock else settings.artifacts_dir)).resolve()
@@ -57,7 +74,10 @@ def main(argv: list[str] | None = None) -> int:
             return 3
 
     # 1. Phase 1
-    cmd = _cmd("phase1_observation", "--out", str(root), mock=args.mock)
+    cmd = _cmd("phase1_observation", "--out", str(root), *phase1_opts, mock=args.mock)
+    if args.mock and args.fault not in (None, "latency"):
+        print(f"[pipeline] mock: Phase 3 replays a recorded latency experiment, so the {args.fault} fault "
+              "changes the plan and the manifest but not the replayed health or traces")
     print(f"\n$ {' '.join(cmd[1:])}", flush=True)
     p1 = subprocess.run(cmd, cwd=CHAOS_ROOT, stdout=subprocess.PIPE, text=True)
     sys.stdout.write(p1.stdout)
