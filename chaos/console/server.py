@@ -1,11 +1,16 @@
-"""Operations console backend: a stateless HTTP server that reads ONLY the artifacts folder.
+"""Operations console backend: the artifacts folder over HTTP, plus starting a fault injection.
 
   GET  /                                  the console page
   GET  /api/v1/experiments                experiment ids with status, newest first
   GET  /api/v1/experiments/{id}           every artifact that exists for that experiment, as one JSON object
   POST /api/v1/experiments/{id}/ack       deletes ../QUARANTINE.json (human acknowledgement lifts the quarantine)
+  GET  /api/v1/inject                     faults, targets (with replica counts) and anything blocking a run
+  POST /api/v1/runs                       start run_pipeline.py with {target, fault, parameters, duration, max_p99_ms}
+  GET  /api/v1/runs/current               the current or last run: state, experiment id, log tail
+  POST /api/v1/runs/current/stop          emergency stop: end the run and delete its chaos resources
 
-It never talks to Kubernetes or Chaos Mesh.
+Experiment views read only the artifacts folder. Injection goes through run_pipeline.py (console/runner.py),
+so the phases' safety rules apply unchanged. POSTs must be JSON from the console's own origin.
 """
 from __future__ import annotations
 
@@ -16,6 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Optional
 
+from .runner import RunError, RunManager
 from common.io import (
     ABORT_SIGNAL, EXPERIMENT_PLAN, INJECTION_RECEIPT, QUARANTINE, RECOMMENDATION, ROOT_CAUSE_ANALYSIS,
 )
@@ -34,8 +40,9 @@ def _load(path: Path) -> Optional[Any]:
 
 
 class Console:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, mock: bool = False, runner: Optional[RunManager] = None):
         self.root = Path(root).resolve()
+        self.runner = runner or RunManager(self.root, mock)
 
     # ------------------------------------------------------------------ helpers
     def _exp_dir(self, experiment_id: str) -> Optional[Path]:
@@ -130,12 +137,40 @@ def make_handler(console: Console) -> type[BaseHTTPRequestHandler]:
         def _parts(self) -> list[str]:
             return [p for p in self.path.split("?")[0].split("/") if p]
 
+        def _post_allowed(self) -> Optional[str]:
+            """Refuse cross-site POSTs: JSON only (other origins would need a CORS preflight we never answer),
+            and an Origin header, when sent, must be this console's own."""
+            if (self.headers.get("Content-Type") or "").split(";")[0].strip().lower() != "application/json":
+                return "POST requires Content-Type: application/json"
+            origin = self.headers.get("Origin")
+            if origin and origin != f"http://{self.headers.get('Host')}":
+                return f"origin {origin} not allowed"
+            return None
+
+        def _read_body(self) -> bytes:
+            """Read the whole body before answering, so a refusal never resets the client's connection."""
+            length = int(self.headers.get("Content-Length") or 0)
+            return self.rfile.read(min(length, 10_001)) if length > 0 else b""
+
+        @staticmethod
+        def _json_body(raw: bytes) -> Any:
+            if len(raw) > 10_000:
+                raise RunError(413, "request too large")
+            try:
+                return json.loads(raw or b"{}")
+            except ValueError:
+                raise RunError(400, "body is not JSON")
+
         def do_GET(self) -> None:
             parts = self._parts()
             if parts in ([], ["index.html"]):
                 return self._send(200, (STATIC_DIR / "index.html").read_bytes(), "text/html; charset=utf-8")
             if parts == ["api", "v1", "experiments"]:
                 return self._json(200, console.list_experiments())
+            if parts == ["api", "v1", "inject"]:
+                return self._json(200, console.runner.options())
+            if parts == ["api", "v1", "runs", "current"]:
+                return self._json(200, {"run": console.runner.current()})
             if len(parts) == 4 and parts[:3] == ["api", "v1", "experiments"]:
                 body = console.get_experiment(parts[3])
                 return self._json(200, body) if body else self._json(404, {"error": "unknown experiment"})
@@ -143,6 +178,17 @@ def make_handler(console: Console) -> type[BaseHTTPRequestHandler]:
 
         def do_POST(self) -> None:
             parts = self._parts()
+            raw = self._read_body()
+            refused = self._post_allowed()
+            if refused:
+                return self._json(403, {"error": refused})
+            try:
+                if parts == ["api", "v1", "runs"]:
+                    return self._json(202, console.runner.start(self._json_body(raw)))
+                if parts == ["api", "v1", "runs", "current", "stop"]:
+                    return self._json(200, console.runner.stop())
+            except RunError as exc:
+                return self._json(exc.status, {"error": str(exc)})
             if len(parts) == 5 and parts[:3] == ["api", "v1", "experiments"] and parts[4] == "ack":
                 code, body = console.ack(parts[3])
                 return self._json(code, body)
@@ -151,5 +197,6 @@ def make_handler(console: Console) -> type[BaseHTTPRequestHandler]:
     return Handler
 
 
-def serve(root: Path, host: str = "127.0.0.1", port: int = 8080) -> ThreadingHTTPServer:
-    return ThreadingHTTPServer((host, port), make_handler(Console(root)))
+def serve(root: Path, host: str = "127.0.0.1", port: int = 8080, mock: bool = False,
+          runner: Optional[RunManager] = None) -> ThreadingHTTPServer:
+    return ThreadingHTTPServer((host, port), make_handler(Console(root, mock, runner)))

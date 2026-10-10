@@ -11,14 +11,17 @@ from .server import serve
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="console", description=__doc__)
-    parser.add_argument("--artifacts", type=Path, default=None, help="artifacts root (default: ARTIFACTS_DIR)")
+    parser.add_argument("--artifacts", type=Path, default=None,
+                        help="artifacts root (default: ARTIFACTS_DIR, or ARTIFACTS_DIR/mock with --mock)")
+    parser.add_argument("--mock", action="store_true", help="injections from this console run with --mock (no cluster)")
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--host", default="127.0.0.1", help="bind address (default: localhost only)")
     args = parser.parse_args(argv)
 
-    root = (args.artifacts or get_settings().artifacts_dir).resolve()
-    httpd = serve(root, args.host, args.port)
-    print(f"[console] reading {root}")
+    settings = get_settings()
+    root = (args.artifacts or (settings.artifacts_dir / "mock" if args.mock else settings.artifacts_dir)).resolve()
+    httpd = serve(root, args.host, args.port, mock=args.mock)
+    print(f"[console] reading {root}; injections run {'with --mock' if args.mock else 'live against the cluster'}")
     print(f"[console] open http://{'localhost' if args.host in ('127.0.0.1', '0.0.0.0') else args.host}:{args.port}")
     try:
         httpd.serve_forever()

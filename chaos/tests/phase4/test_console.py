@@ -35,8 +35,11 @@ def server(tmp_path):
     httpd.server_close()
 
 
-def call(url, method="GET"):
-    req = urllib.request.Request(url, method=method)
+def call(url, method="GET", headers=None, body=None):
+    if method == "POST" and headers is None:
+        headers = {"Content-Type": "application/json"}
+    req = urllib.request.Request(url, method=method, headers=headers or {},
+                                 data=None if body is None else json.dumps(body).encode())
     try:
         with urllib.request.urlopen(req, timeout=5) as resp:
             return resp.status, resp.read()
