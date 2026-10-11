@@ -12,7 +12,7 @@ from pathlib import Path
 
 from common.config import REPO_ROOT
 from common.contracts import ExperimentPlan, RootCauseAnalysis
-from common.io import EXPERIMENT_PLAN, ROOT_CAUSE_ANALYSIS, read_model, write_artifact
+from common.io import EXPERIMENT_PLAN, ROOT_CAUSE_ANALYSIS, read_model, write_artifact, write_json_atomic
 
 from .advisor import build_recommendation, write_audit
 
@@ -35,10 +35,16 @@ def main(argv: list[str] | None = None) -> int:
     plan = read_model(args.exp / EXPERIMENT_PLAN, ExperimentPlan)
     rca = read_model(args.exp / ROOT_CAUSE_ANALYSIS, RootCauseAnalysis)
     rec, audit = build_recommendation(args.exp, args.repo.resolve(), plan, rca, use_llm=not args.mock)
+    options = audit.pop("options", [])
     write_audit(args.exp, audit, rec.suggested_diff)
     write_artifact(args.exp, rec)
+    if options:
+        write_json_atomic(args.exp / "RecommendationOptions.json",
+                          {"experiment_id": plan.experiment_id, "options": options})
 
     print(f"[phase4] {rec.priority.value} {rec.vulnerability_type}: {rec.summary}")
+    if options:
+        print(f"[phase4] {len(options)} fix option(s): " + ", ".join(o["title"] for o in options))
     if rec.target_file:
         print(f"[phase4] target {rec.target_file} {rec.target_symbol}")
     patch = audit.get("patch") or {}

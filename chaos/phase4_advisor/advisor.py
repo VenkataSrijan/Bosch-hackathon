@@ -157,12 +157,81 @@ def _guidance(faulty: str, downstream: str, site: CallSite, controls: dict[str, 
     return " ".join(parts)
 
 
+# ------------------------------------------------------------------ options (a few possible fixes)
+
+# Per missing control: a short title, its own priority, and how it is applied.
+OPTION_META: dict[str, tuple[str, Priority, str]] = {
+    "timeout": ("Add a client-side deadline", Priority.HIGH, "code patch"),
+    "circuit_breaker": ("Add a circuit breaker / outlier detection", Priority.HIGH, "mesh config (kubectl apply)"),
+    "retry": ("Retry idempotent failures with backoff", Priority.MEDIUM, "mesh config (kubectl apply)"),
+    "fallback": ("Add a graceful fallback path", Priority.MEDIUM, "code change (manual)"),
+}
+
+
+def _gap_rationale(control: str, faulty: str, downstream: str, site: CallSite, deadline_ms: int) -> str:
+    if control == "timeout":
+        return (f"Add a client-side deadline of about {deadline_ms} ms on the {site.method or 'outbound'} call "
+                "(~8x the healthy edge p99, well under the abort threshold) so a slow replica fails fast instead "
+                "of holding request handlers.")
+    if control == "retry":
+        return ("Retry idempotent failures once with backoff and a per-try timeout, so a request that hit the "
+                "degraded replica is served by a healthy one.")
+    if control == "circuit_breaker":
+        return (f"Eject {downstream} replicas that keep failing (circuit breaker / outlier detection) so traffic "
+                "stops flowing to the degraded pod.")
+    return (f"Decide what {faulty} does when {downstream} stays unavailable: return a clear, retryable error, or "
+            "defer the work, rather than timing out the whole request.")
+
+
+def build_options(repo: Path, site: CallSite, controls: dict[str, Control], faulty: str, downstream: str,
+                  deadline_ms: int, experiment_id: str) -> list[dict]:
+    """One candidate fix per missing resilience control, each independently reviewable.
+
+    The combined Recommendation stays the headline; these are the alternatives a human can pick between.
+    """
+    missing = [n for n, c in controls.items() if not c.present]
+    options: list[dict] = []
+    for i, name in enumerate(missing):
+        title, priority, applies_via = OPTION_META[name]
+        diff: Optional[str] = None
+        if name == "timeout" and site.patchable:
+            diff = go_deadline(repo, site, deadline_ms) or python_deadline(repo, site, deadline_ms)
+        elif name in ("retry", "circuit_breaker"):
+            _, diff = mesh_policy(repo, downstream, deadline_ms, name == "retry", name == "circuit_breaker",
+                                  experiment_id)
+        if diff and not git_apply_check(repo, diff)[0]:
+            diff = None
+        options.append({
+            "option_id": f"opt-{name.replace('_', '-')}",
+            "rank": i + 1,
+            "strategy": name,
+            "title": title,
+            "control": LABELS[name],
+            "priority": priority.value,
+            "rationale": _gap_rationale(name, faulty, downstream, site, deadline_ms),
+            "target_file": site.file if name == "timeout" else None,
+            "target_symbol": site.symbol if name == "timeout" else None,
+            "applies_via": applies_via,
+            "suggested_diff": diff,
+        })
+    if not options:  # all four controls present: the one option is to tune their settings
+        options.append({
+            "option_id": "opt-tuning", "rank": 1, "strategy": "tuning",
+            "title": "Tune the existing controls", "control": "settings", "priority": Priority.LOW.value,
+            "rationale": (f"{site.symbol} already has a deadline, retries, a breaker and a fallback, yet the fault "
+                          "still degraded checkout; tighten the deadline, retry budget or outlier thresholds."),
+            "target_file": site.file, "target_symbol": site.symbol,
+            "applies_via": "tuning (code / mesh)", "suggested_diff": None,
+        })
+    return options
+
+
 def build_recommendation(exp_dir: Path, repo: Path, plan: ExperimentPlan, rca: RootCauseAnalysis,
                          use_llm: bool = True) -> tuple[Recommendation, dict]:
     eid = plan.experiment_id
     deadline_ms = choose_deadline_ms(plan)
     audit: dict = {"experiment_id": eid, "generated_at": datetime.now(timezone.utc).isoformat(),
-                   "rca_verdict": rca.verdict.value, "deadline_ms": deadline_ms}
+                   "rca_verdict": rca.verdict.value, "deadline_ms": deadline_ms, "options": []}
     common_fields = dict(experiment_id=eid, target_repository=TARGET_REPOSITORY,
                          verification_command=_verification_command(exp_dir))
     fault = describe_fault(plan)
@@ -222,6 +291,7 @@ def build_recommendation(exp_dir: Path, repo: Path, plan: ExperimentPlan, rca: R
 
     diff, patch_info = synthesize_patch(repo, site, controls, downstream, deadline_ms, eid, use_llm)
     audit["patch"] = patch_info
+    audit["options"] = build_options(repo, site, controls, faulty, downstream, deadline_ms, eid)
 
     if missing:
         vuln, slug = VULNERABILITY[missing[0]]

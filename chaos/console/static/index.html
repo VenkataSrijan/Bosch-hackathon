@@ -447,7 +447,24 @@ function renderBlue() {
     }
     if (rec.suggested_diff) fix.append(el("h3", { style: "margin-top:12px" }, "Suggested diff"), renderDiff(rec.suggested_diff));
   }
-  box.replaceChildren(rcaBlock, cascade, fix);
+
+  const children = [rcaBlock, cascade, fix];
+  const opts = current.RecommendationOptions?.options || [];
+  if (opts.length) {
+    children.push(el("section", { class: "block" },
+      el("h3", {}, `Fix options (${opts.length})`),
+      el("p", { class: "hint", style: "margin:0 0 8px" }, "The headline fix above combines these. Each is a separate option you can pick between."),
+      el("ol", { class: "cascade" }, opts.map(o => el("li", {},
+        el("span", { class: "hop" }, o.rank),
+        el("div", {},
+          el("div", {}, chip(o.priority, PRIORITY_TONE[o.priority]), " ", el("strong", {}, o.title),
+            el("span", { class: "ev" }, ` · ${o.applies_via}`)),
+          el("div", { class: "what" }, o.rationale),
+          o.target_file ? el("div", { class: "mono", style: "font-size:12px;color:var(--text-muted);margin-top:2px" }, `${o.target_file} · ${o.target_symbol || ""}`) : null,
+          o.suggested_diff ? el("details", { style: "margin-top:6px" }, el("summary", {}, "Suggested diff"), renderDiff(o.suggested_diff))
+            : el("div", { class: "waiting", style: "margin-top:4px" }, "no automatic diff — apply manually")))))));
+  }
+  box.replaceChildren(...children);
 }
 
 function renderButtons() {
