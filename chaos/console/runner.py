@@ -219,14 +219,99 @@ class RunManager:
             request["duration"] = fp["max_duration_seconds"]
         if at.get("max_p99_latency_ms") is not None:
             request["max_p99_ms"] = at["max_p99_latency_ms"]
-        rationale = [ln for ln in lines if ln.startswith("[phase1]") and "Wrote" not in ln]
+        phase1_log = [ln for ln in lines if ln.startswith("[phase1]") and "Wrote" not in ln]
+
+        # --- rank a few candidate experiments for the operator to choose from --------------
+        def _read_json(path: Path) -> Any:
+            try:
+                return json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                return None
+
+        meta = _read_json(exp_dir / "observation_metadata.json") or {}
+        topo = _read_json(exp_dir / "topology.json") or {}
+        nodes = topo.get("nodes") or {}
+        summary = meta.get("candidate_summary") or []
+        eligible = sorted(
+            [c for c in summary if c.get("status") == "eligible" and c.get("score") is not None],
+            key=lambda c: c["score"], reverse=True)
+        if not eligible and request.get("target"):
+            eligible = [{"service": request["target"], "score": 0.0}]
+
+        fault_weight = {"latency": 25.0, "pod-kill": 20.0, "loss": 15.0}
+        duration = request.get("duration", DURATION["default"])
+        max_p99 = request.get("max_p99_ms")
+
+        def _build_request(target: str, fault: str) -> dict[str, Any]:
+            if target == request.get("target") and fault == request.get("fault"):
+                return dict(request)  # stay faithful to Phase 1's own top pick
+            r: dict[str, Any] = {"target": target, "fault": fault}
+            for f in FAULTS:
+                if f["id"] == fault:
+                    for p in f["params"]:
+                        r[p["name"]] = p["default"]
+            if fault != "pod-kill":
+                r["duration"] = duration
+            if max_p99 is not None:
+                r["max_p99_ms"] = max_p99
+            return r
+
+        def _why(target: str, fault: str) -> str:
+            node = nodes.get(target) or {}
+            where = []
+            if node.get("on_checkout_path"):
+                where.append("on the checkout path")
+            if node.get("is_choke_point"):
+                where.append("a choke point")
+            if node.get("in_degree"):
+                where.append(f"fan-in {node['in_degree']}")
+            place = ", ".join(where) if where else "an eligible target (2+ replicas)"
+            tail = {
+                "latency": "added latency stresses synchronous callers — the classic cascading-timeout test for missing client deadlines or circuit breakers.",
+                "loss": "packet loss tests retry logic and idempotency on its RPCs.",
+                "pod-kill": "killing one of its replicas tests failover and whether redundancy really absorbs the loss.",
+            }[fault]
+            return f"{target} is {place}; {tail}"
+
+        scored: list[tuple[float, str, str]] = []
+        if eligible:
+            top = eligible[0]["service"]
+            for fault in ("latency", "loss", "pod-kill"):
+                scored.append((eligible[0]["score"] + fault_weight[fault], top, fault))
+            for c in eligible[1:4]:  # other eligible targets, their most-revealing fault
+                scored.append((c["score"] + fault_weight["latency"], c["service"], "latency"))
+
+        seen: set[tuple[str, str]] = set()
+        ranked: list[tuple[float, str, str]] = []
+        for risk, target, fault in sorted(scored, key=lambda x: x[0], reverse=True):
+            if (target, fault) in seen:
+                continue
+            seen.add((target, fault))
+            ranked.append((risk, target, fault))
+        ranked = ranked[:6]
+        max_risk = max((r for r, _, _ in ranked), default=1.0) or 1.0
+
+        fault_label = {"latency": "network latency", "loss": "packet loss", "pod-kill": "pod kill"}
+        candidates = []
+        for risk, target, fault in ranked:
+            frac = risk / max_risk
+            tier = "high" if frac >= 0.8 else "medium" if frac >= 0.55 else "low"
+            candidates.append({
+                "label": f"{target} · {fault_label[fault]}",
+                "request": _build_request(target, fault),
+                "risk_score": round(risk, 1),
+                "risk_tier": tier,
+                "rationale": _why(target, fault),
+            })
+
         return {
             "proposed_by": "red-agent",
             "experiment_id": plan.get("experiment_id"),
-            "request": request,
+            "request": candidates[0]["request"] if candidates else request,
+            "candidates": candidates,
             "steady_state_baseline": plan.get("steady_state_baseline"),
             "abort_thresholds": at,
-            "rationale": rationale,
+            "rationale": phase1_log,
             "blocked_by": self.readiness(),  # e.g. a standing quarantine that would block the approved run
         }
 
