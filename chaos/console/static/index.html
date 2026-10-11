@@ -188,6 +188,18 @@ input:focus-visible, select:focus-visible, button:focus-visible, summary:focus-v
     <h2 id="inject-title">Inject a fault <span id="inject-mode" class="chip"><span class="dot"></span><span>…</span></span></h2>
     <form id="inject-form" novalidate>
       <div class="row">
+        <button type="button" id="inj-propose">🤖 Let the agent choose</button>
+        <span class="hint" style="flex:1 1 16rem">The Red Agent profiles the system and proposes a target and fault. Review it below, adjust if you want, then approve.</span>
+      </div>
+      <div class="confirm" id="inj-proposal" hidden style="border-color:var(--text-primary);background:var(--surface-2)">
+        <p id="inj-proposal-text"></p>
+        <label class="field" for="inj-candidate" style="display:block;max-width:34rem">Candidate experiments (ranked by risk)
+          <select id="inj-candidate"></select></label>
+        <p class="hint mono" id="inj-candidate-why" style="margin:8px 0"></p>
+        <button type="button" class="primary" id="inj-approve">✓ Approve &amp; inject the selected plan</button>
+        <button type="button" id="inj-proposal-dismiss">Dismiss</button>
+      </div>
+      <div class="row">
         <label class="field" for="inj-target">Target service
           <select id="inj-target" name="target"></select></label>
         <fieldset class="faults" id="inj-faults"><legend>Fault</legend></fieldset>
@@ -440,7 +452,24 @@ function renderBlue() {
     }
     if (rec.suggested_diff) fix.append(el("h3", { style: "margin-top:12px" }, "Suggested diff"), renderDiff(rec.suggested_diff));
   }
-  box.replaceChildren(rcaBlock, cascade, fix);
+
+  const children = [rcaBlock, cascade, fix];
+  const opts = current.RecommendationOptions?.options || [];
+  if (opts.length) {
+    children.push(el("section", { class: "block" },
+      el("h3", {}, `Fix options (${opts.length})`),
+      el("p", { class: "hint", style: "margin:0 0 8px" }, "The headline fix above combines these. Each is a separate option you can pick between."),
+      el("ol", { class: "cascade" }, opts.map(o => el("li", {},
+        el("span", { class: "hop" }, o.rank),
+        el("div", {},
+          el("div", {}, chip(o.priority, PRIORITY_TONE[o.priority]), " ", el("strong", {}, o.title),
+            el("span", { class: "ev" }, ` · ${o.applies_via}`)),
+          el("div", { class: "what" }, o.rationale),
+          o.target_file ? el("div", { class: "mono", style: "font-size:12px;color:var(--text-muted);margin-top:2px" }, `${o.target_file} · ${o.target_symbol || ""}`) : null,
+          o.suggested_diff ? el("details", { style: "margin-top:6px" }, el("summary", {}, "Suggested diff"), renderDiff(o.suggested_diff))
+            : el("div", { class: "waiting", style: "margin-top:4px" }, "no automatic diff — apply manually")))))));
+  }
+  box.replaceChildren(...children);
 }
 
 function renderButtons() {
@@ -584,7 +613,7 @@ document.getElementById("btn-ack").addEventListener("click", async () => {
 window.addEventListener("resize", () => { if (current) renderCharts(); });
 
 // ---------------------------------------------------------------- fault injection
-const INJ = { options: null, run: null, followed: null };
+const INJ = { options: null, run: null, followed: null, candidates: [], candidateIdx: 0 };
 const POST = (url, body) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
 const $id = (x) => document.getElementById(x);
 
@@ -634,7 +663,11 @@ function renderInjectOptions() {
 }
 function describeRequest(r) {
   const what = r.fault === "latency" ? `${r.delay_ms} ms latency (±${r.jitter_ms} ms)`
-    : r.fault === "loss" ? `${r.loss_percent}% packet loss` : "a pod kill";
+    : r.fault === "loss" ? `${r.loss_percent}% packet loss`
+    : r.fault === "cpu" ? `CPU stress (${r.workers} workers @ ${r.load}%)`
+    : r.fault === "memory" ? `memory stress (${r.workers}×${r.size_mb} MB)`
+    : r.fault === "dependency" ? "a dependency failure (network partition from a caller)"
+    : "a pod kill";
   const span = r.fault === "pod-kill" || !r.duration ? "" : ` for ${r.duration} s`;
   return `${what} on 1 ${r.target} pod${span}${r.max_p99_ms ? `, abort above ${r.max_p99_ms} ms p99` : ""}`;
 }
@@ -646,15 +679,72 @@ function readForm() {
   if (lim !== "") r.max_p99_ms = Number(lim);
   return r;
 }
-$id("inject-form").addEventListener("submit", (e) => {
-  e.preventDefault();
+function applyRequestToForm(r) {
+  if (r.target) {
+    const sel = $id("inj-target");
+    if ([...sel.options].some(o => o.value === r.target && !o.disabled)) sel.value = r.target;
+  }
+  if (r.fault) {
+    const radio = document.querySelector(`#inj-faults input[value="${r.fault}"]`);
+    if (radio) { radio.checked = true; renderParams(); }
+  }
+  for (const name of ["delay_ms", "jitter_ms", "loss_percent"]) {
+    if (r[name] != null) { const inp = $id(`inj-${name}`); if (inp) inp.value = r[name]; }
+  }
+  if (r.duration != null) $id("inj-duration").value = r.duration;
+  $id("inj-limit").value = r.max_p99_ms != null ? r.max_p99_ms : "";
+}
+function tierTag(t) {
+  return t === "high" ? "🔴 high" : t === "medium" ? "🟠 medium" : "🟡 low";
+}
+function selectCandidate(i) {
+  const c = INJ.candidates && INJ.candidates[i];
+  if (!c) return;
+  INJ.candidateIdx = i;
+  applyRequestToForm(c.request);
+  $id("inj-candidate-why").textContent = c.rationale || "";
+}
+function fillProposal(p) {
+  const cands = (p.candidates && p.candidates.length) ? p.candidates
+    : (p.request ? [{ label: "agent proposal", request: p.request, risk_tier: "high",
+                      rationale: (p.rationale || []).join("  ·  ") }] : []);
+  INJ.candidates = cands;
+  const sel = $id("inj-candidate");
+  sel.replaceChildren(...cands.map((c, idx) => el("option", { value: String(idx) },
+    `${idx + 1}. ${c.label} · ${tierTag(c.risk_tier)}${idx === 0 ? " · agent's pick" : ""}`)));
+  sel.value = "0";
+  $id("inj-proposal-text").replaceChildren(
+    el("strong", {}, "🤖 Red Agent proposes"), el("br"),
+    `${cands.length} candidate experiment${cands.length === 1 ? "" : "s"}, ranked by risk. ` +
+    `Pick one below — the fields above update to match — then approve.`,
+    ...(p.blocked_by?.length ? [el("br"), el("small", { style: "color:var(--critical)" }, "⚠ blocked until resolved: " + p.blocked_by.join("; "))] : []));
+  selectCandidate(0);
+  $id("inj-proposal").hidden = false;
+}
+$id("inj-propose").addEventListener("click", async () => {
+  if (!INJ.options) return;
+  const btn = $id("inj-propose"), label = btn.textContent;
+  btn.disabled = true; btn.textContent = "Agent is profiling…";
+  try {
+    const res = await POST("/api/v1/propose", {});
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) { toast(`Proposal failed: ${body.error || res.status}`); return; }
+    fillProposal(body);
+    toast(`Agent proposed ${INJ.candidates.length} experiment${INJ.candidates.length === 1 ? "" : "s"} — pick one and approve`);
+  } finally { btn.disabled = false; btn.textContent = label; }
+});
+$id("inj-candidate").addEventListener("change", (e) => selectCandidate(Number(e.target.value)));
+function askConfirm() {
   if (!INJ.options) return;
   const r = readForm();
   $id("inj-confirm-text").textContent =
     `Inject ${describeRequest(r)}${INJ.options.mode === "live" ? " in the live cluster" : " (mock replay)"}?`;
   $id("inj-confirm").hidden = false;
   $id("inj-confirm-go").focus();
-});
+}
+$id("inject-form").addEventListener("submit", (e) => { e.preventDefault(); askConfirm(); });
+$id("inj-approve").addEventListener("click", askConfirm);
+$id("inj-proposal-dismiss").addEventListener("click", () => { $id("inj-proposal").hidden = true; });
 $id("inj-confirm-cancel").addEventListener("click", () => { $id("inj-confirm").hidden = true; });
 $id("inj-confirm-go").addEventListener("click", async () => {
   $id("inj-confirm").hidden = true;

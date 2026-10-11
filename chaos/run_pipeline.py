@@ -29,6 +29,31 @@ from common.io import (
 
 PHASE3_RECEIPT_WAIT_SECONDS = 120
 
+# The recorded "abort" health curve peaks at ~560 ms edge p99 for a 250 ms latency fault.
+_ABORT_PEAK_P99_MS = 560.0
+_REF_DELAY_MS = 250.0
+
+
+def _mock_scenario(plan) -> str:
+    """Which recorded health curve --mock should replay for this plan.
+
+    A severed critical dependency is a hard outage, so 'dependency' always trips the kill switch.
+    Latency aborts only when its predicted edge p99 would exceed the operator's abort threshold
+    (raise the threshold, or soften the delay, to let it complete). loss, pod-kill and the stress
+    faults are tolerated at the edge in this app, so they replay 'healthy'. This keeps the replayed
+    graph honest about the fault that was actually chosen.
+    """
+    action = plan.fault_profile.action
+    if action == "dependency":
+        return "abort"  # a severed critical dependency is a hard outage; the kill switch should trip
+    threshold = plan.abort_thresholds.max_p99_latency_ms
+    if action != "latency" or threshold is None:
+        return "healthy"
+    base = plan.steady_state_baseline.p99_latency_ms or 18.5
+    delay = float(plan.fault_profile.parameters.get("delay_ms") or 0)
+    predicted_peak = base + delay * ((_ABORT_PEAK_P99_MS - base) / _REF_DELAY_MS)
+    return "abort" if predicted_peak > threshold else "healthy"
+
 
 def _cmd(module: str, *args: str, mock: bool) -> list[str]:
     return [sys.executable, "-m", module, *args, *(["--mock"] if mock else [])]
@@ -47,15 +72,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", type=Path, default=REPO_ROOT, help="repository root passed to Phase 4")
     fault = parser.add_argument_group("fault (passed to Phase 1)")
     fault.add_argument("--target", help="service to inject into (needs at least 2 replicas)")
-    fault.add_argument("--fault", choices=["latency", "loss", "pod-kill"])
+    fault.add_argument("--fault", choices=["latency", "loss", "pod-kill", "cpu", "memory", "dependency"])
     fault.add_argument("--delay-ms", type=int)
     fault.add_argument("--jitter-ms", type=int)
     fault.add_argument("--loss-percent", type=int)
+    fault.add_argument("--workers", type=int, help="cpu/memory stress: worker count")
+    fault.add_argument("--load", type=int, help="cpu stress: %% load per worker")
+    fault.add_argument("--size-mb", type=int, help="memory stress: MB per worker")
+    fault.add_argument("--caller", help="dependency failure: the caller to cut off (default: picked from the topology)")
     fault.add_argument("--duration", type=int, help="fault window in seconds (default 60)")
     fault.add_argument("--max-p99-ms", type=float, help="abort if frontend p99 exceeds this")
     args = parser.parse_args(argv)
     phase1_opts: list[str] = []
-    for name in ("target", "fault", "delay_ms", "jitter_ms", "loss_percent", "duration", "max_p99_ms"):
+    for name in ("target", "fault", "delay_ms", "jitter_ms", "loss_percent",
+                 "workers", "load", "size_mb", "caller", "duration", "max_p99_ms"):
         value = getattr(args, name)
         if value is not None:
             phase1_opts += [f"--{name.replace('_', '-')}", str(value)]
@@ -75,9 +105,6 @@ def main(argv: list[str] | None = None) -> int:
 
     # 1. Phase 1
     cmd = _cmd("phase1_observation", "--out", str(root), *phase1_opts, mock=args.mock)
-    if args.mock and args.fault not in (None, "latency"):
-        print(f"[pipeline] mock: Phase 3 replays a recorded latency experiment, so the {args.fault} fault "
-              "changes the plan and the manifest but not the replayed health or traces")
     print(f"\n$ {' '.join(cmd[1:])}", flush=True)
     p1 = subprocess.run(cmd, cwd=CHAOS_ROOT, stdout=subprocess.PIPE, text=True)
     sys.stdout.write(p1.stdout)
@@ -91,7 +118,14 @@ def main(argv: list[str] | None = None) -> int:
     plan = read_model(exp_dir / EXPERIMENT_PLAN, ExperimentPlan)
 
     # 2. Phase 3 in the background
-    p3_cmd = _cmd("phase3_judge", "--exp", str(exp_dir), mock=args.mock)
+    p3_extra: list[str] = []
+    if args.mock:
+        scenario = _mock_scenario(plan)
+        p3_extra = ["--mock-scenario", scenario]
+        print(f"[pipeline] mock: Phase 3 replays the '{scenario}' recording "
+              f"(fault={plan.fault_profile.action}, aborts if edge p99 > "
+              f"{plan.abort_thresholds.max_p99_latency_ms:g} ms)")
+    p3_cmd = _cmd("phase3_judge", "--exp", str(exp_dir), *p3_extra, mock=args.mock)
     print(f"\n$ {' '.join(p3_cmd[1:])} &", flush=True)
     p3 = subprocess.Popen(p3_cmd, cwd=CHAOS_ROOT)
 

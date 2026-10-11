@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from common.config import CHAOS_ROOT, get_settings
-from common.io import QUARANTINE
+from common.io import EXPERIMENT_PLAN, QUARANTINE
 
 RUNS_DIR = "_runs"
 CONSOLE_STOP = "ConsoleStop.json"  # the console's own record that an operator stopped this experiment
@@ -37,6 +37,13 @@ FAULTS: list[dict[str, Any]] = [
     {"id": "loss", "label": "Packet loss", "params": [
         {"name": "loss_percent", "label": "Packets dropped", "unit": "%", "default": 30, "min": 1, "max": 100}]},
     {"id": "pod-kill", "label": "Pod kill", "params": []},
+    {"id": "cpu", "label": "CPU stress", "params": [
+        {"name": "workers", "label": "Workers", "unit": "", "default": 2, "min": 1, "max": 8},
+        {"name": "load", "label": "Load per worker", "unit": "%", "default": 80, "min": 1, "max": 100}]},
+    {"id": "memory", "label": "Memory stress", "params": [
+        {"name": "workers", "label": "Workers", "unit": "", "default": 1, "min": 1, "max": 8},
+        {"name": "size_mb", "label": "Size per worker", "unit": "MB", "default": 256, "min": 16, "max": 4096}]},
+    {"id": "dependency", "label": "Dependency failure", "params": []},  # Phase 1 picks the caller to cut
 ]
 DURATION = {"default": 60, "min": 10, "max": 600}
 
@@ -168,6 +175,158 @@ class RunManager:
         return {"mode": "mock" if self.mock else "live", "namespace": self.namespace, "faults": FAULTS,
                 "duration": DURATION, "targets": targets, "problems": problems,
                 "running": bool(current and current["state"] == "running")}
+
+    # ---------------------------------------------------------------- propose (agent decides, human approves)
+    def propose(self, body: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+        """Run Phase 1 only (the Red Agent picks a target + fault) WITHOUT injecting.
+
+        The operator reviews the proposal and then approves it through the normal
+        POST /api/v1/runs path, so every safety rule still applies at injection time.
+        Phase 1 writes into a throwaway `_proposals/` dir, never the experiments list.
+        """
+        with self.lock:
+            if self.run and self.run.process.poll() is None:
+                raise RunError(409, f"run {self.run.run_id} is still going; wait for it or stop it")
+        out_dir = self.root / "_proposals"
+        shutil.rmtree(out_dir, ignore_errors=True)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        cmd = [self.python, "-u", "-m", "phase1_observation", "--out", str(out_dir)]
+        if self.mock:
+            cmd.append("--mock")
+        else:
+            cmd += ["--window", "2"]  # quick baseline just for the proposal; the approved run profiles again
+        env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+        try:
+            proc = subprocess.run(cmd, cwd=CHAOS_ROOT, capture_output=True, text=True, env=env, timeout=600)
+        except subprocess.TimeoutExpired:
+            raise RunError(504, "the agent took too long to build a proposal")
+        if proc.returncode != 0:
+            detail = (proc.stderr or proc.stdout).strip()[-400:] or "unknown error"
+            raise RunError(502, f"the agent could not build a proposal: {detail}")
+        lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
+        exp_dir = Path(lines[-1].strip()) if lines else None
+        plan: Any = None
+        if exp_dir and (exp_dir / EXPERIMENT_PLAN).exists():
+            try:
+                plan = json.loads((exp_dir / EXPERIMENT_PLAN).read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                plan = None
+        if not isinstance(plan, dict):
+            raise RunError(502, "the agent produced no ExperimentPlan")
+
+        tn = plan.get("target_node") or {}
+        fp = plan.get("fault_profile") or {}
+        at = plan.get("abort_thresholds") or {}
+        params = fp.get("parameters") or {}
+        request: dict[str, Any] = {"target": tn.get("service_name"), "fault": fp.get("action")}
+        for key in ("delay_ms", "jitter_ms", "loss_percent"):
+            if params.get(key) is not None:
+                request[key] = params[key]
+        if fp.get("max_duration_seconds") is not None:
+            request["duration"] = fp["max_duration_seconds"]
+        if at.get("max_p99_latency_ms") is not None:
+            request["max_p99_ms"] = at["max_p99_latency_ms"]
+        phase1_log = [ln for ln in lines if ln.startswith("[phase1]") and "Wrote" not in ln]
+
+        # --- rank a few candidate experiments for the operator to choose from --------------
+        def _read_json(path: Path) -> Any:
+            try:
+                return json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                return None
+
+        meta = _read_json(exp_dir / "observation_metadata.json") or {}
+        topo = _read_json(exp_dir / "topology.json") or {}
+        nodes = topo.get("nodes") or {}
+        summary = meta.get("candidate_summary") or []
+        eligible = sorted(
+            [c for c in summary if c.get("status") == "eligible" and c.get("score") is not None],
+            key=lambda c: c["score"], reverse=True)
+        if not eligible and request.get("target"):
+            eligible = [{"service": request["target"], "score": 0.0}]
+
+        fault_weight = {"dependency": 28.0, "latency": 25.0, "cpu": 22.0, "pod-kill": 20.0, "memory": 18.0, "loss": 15.0}
+        duration = request.get("duration", DURATION["default"])
+        max_p99 = request.get("max_p99_ms")
+
+        def _build_request(target: str, fault: str) -> dict[str, Any]:
+            if target == request.get("target") and fault == request.get("fault"):
+                return dict(request)  # stay faithful to Phase 1's own top pick
+            r: dict[str, Any] = {"target": target, "fault": fault}
+            for f in FAULTS:
+                if f["id"] == fault:
+                    for p in f["params"]:
+                        r[p["name"]] = p["default"]
+            if fault != "pod-kill":
+                r["duration"] = duration
+            if max_p99 is not None:
+                r["max_p99_ms"] = max_p99
+            return r
+
+        def _why(target: str, fault: str) -> str:
+            node = nodes.get(target) or {}
+            where = []
+            if node.get("on_checkout_path"):
+                where.append("on the checkout path")
+            if node.get("is_choke_point"):
+                where.append("a choke point")
+            if node.get("in_degree"):
+                where.append(f"fan-in {node['in_degree']}")
+            place = ", ".join(where) if where else "an eligible target (2+ replicas)"
+            tail = {
+                "latency": "added latency stresses synchronous callers — the classic cascading-timeout test for missing client deadlines or circuit breakers.",
+                "loss": "packet loss tests retry logic and idempotency on its RPCs.",
+                "pod-kill": "killing one of its replicas tests failover and whether redundancy really absorbs the loss.",
+                "cpu": "CPU stress saturates the pod's cores to test whether throttling degrades latency gracefully or starves request handlers.",
+                "memory": "memory stress inflates the pod's footprint to test behaviour under pressure before the OOM killer steps in.",
+                "dependency": "severing its link to a caller makes it a failed dependency — tests whether the caller has a circuit breaker and fallback instead of collapsing.",
+            }[fault]
+            return f"{target} is {place}; {tail}"
+
+        scored: list[tuple[float, str, str]] = []
+        if eligible:
+            top = eligible[0]["service"]
+            for fault in ("latency", "loss", "pod-kill", "cpu", "memory", "dependency"):
+                if fault == "dependency" and not (nodes.get(top) or {}).get("callers"):
+                    continue  # nothing calls this service, so there is no edge to cut
+                scored.append((eligible[0]["score"] + fault_weight[fault], top, fault))
+            for c in eligible[1:4]:  # other eligible targets, their most-revealing fault
+                scored.append((c["score"] + fault_weight["latency"], c["service"], "latency"))
+
+        seen: set[tuple[str, str]] = set()
+        ranked: list[tuple[float, str, str]] = []
+        for risk, target, fault in sorted(scored, key=lambda x: x[0], reverse=True):
+            if (target, fault) in seen:
+                continue
+            seen.add((target, fault))
+            ranked.append((risk, target, fault))
+        ranked = ranked[:6]
+        max_risk = max((r for r, _, _ in ranked), default=1.0) or 1.0
+
+        fault_label = {"latency": "network latency", "loss": "packet loss", "pod-kill": "pod kill",
+                       "cpu": "CPU stress", "memory": "memory stress", "dependency": "dependency failure"}
+        candidates = []
+        for risk, target, fault in ranked:
+            frac = risk / max_risk
+            tier = "high" if frac >= 0.8 else "medium" if frac >= 0.55 else "low"
+            candidates.append({
+                "label": f"{target} · {fault_label[fault]}",
+                "request": _build_request(target, fault),
+                "risk_score": round(risk, 1),
+                "risk_tier": tier,
+                "rationale": _why(target, fault),
+            })
+
+        return {
+            "proposed_by": "red-agent",
+            "experiment_id": plan.get("experiment_id"),
+            "request": candidates[0]["request"] if candidates else request,
+            "candidates": candidates,
+            "steady_state_baseline": plan.get("steady_state_baseline"),
+            "abort_thresholds": at,
+            "rationale": phase1_log,
+            "blocked_by": self.readiness(),  # e.g. a standing quarantine that would block the approved run
+        }
 
     # ---------------------------------------------------------------- start / stop
     def _validate(self, body: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
