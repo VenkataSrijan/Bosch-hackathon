@@ -27,6 +27,7 @@ _LOSS_ACTIONS = {"loss", "packet-loss", "packet_loss"}
 _KILL_ACTIONS = {"kill", "pod-kill", "pod_kill", "podkill"}
 _CPU_ACTIONS = {"cpu", "cpu-stress", "cpu_stress"}
 _MEM_ACTIONS = {"memory", "mem", "memory-stress", "memory_stress"}
+_DEP_ACTIONS = {"dependency", "dependency-failure", "dependency_failure", "partition"}
 
 
 class UnsupportedFault(ValueError):
@@ -132,14 +133,28 @@ def build_manifest(plan: ExperimentPlan, *, duration_seconds: float, target_pods
         return "StressChaos", _base("StressChaos", eid, ns, eid, spec)
 
     if category == "stress" and action in _MEM_ACTIONS:
-        stressors = {"memory": {"workers": int(params.get("workers", 1)), "size": str(params.get("size", "256MB"))}}
+        size = params.get("size")
+        if size is None and params.get("size_mb") is not None:
+            size = f"{int(params['size_mb'])}MB"
+        stressors = {"memory": {"workers": int(params.get("workers", 1)), "size": str(size or "256MB")}}
         spec = {"mode": "fixed", "value": value, "selector": selector,
                 "stressors": stressors, "duration": _duration(duration_seconds)}
         return "StressChaos", _base("StressChaos", eid, ns, eid, spec)
 
+    if action in _DEP_ACTIONS:
+        # Dependency failure: fully partition the target pod from one named neighbour (its caller),
+        # so from that caller's side the target is an unreachable dependency.
+        dep = params.get("caller") or params.get("dependency") or params.get("upstream_caller")
+        spec = {"action": "partition", "mode": "fixed", "value": value, "selector": selector,
+                "direction": str(params.get("direction", "both"))}
+        if dep:
+            spec["target"] = {"mode": "all", "selector": _selector(ns, str(dep))}
+        spec["duration"] = _duration(duration_seconds)
+        return "NetworkChaos", _base("NetworkChaos", eid, ns, eid, spec)
+
     raise UnsupportedFault(
         f"no Chaos Mesh mapping for category={fp.category!r} action={fp.action!r}. "
-        "Supported: network/latency, network/loss, pod/pod-kill, stress/cpu, stress/memory."
+        "Supported: network/latency, network/loss, network/dependency, pod/pod-kill, stress/cpu, stress/memory."
     )
 
 
@@ -154,6 +169,9 @@ def describe_fault(kind: str, manifest: dict[str, Any]) -> str:
         return f"Chaos Mesh NetworkChaos delay latency={d['latency']}{jitter} on {scope}"
     if kind == "NetworkChaos" and spec.get("action") == "loss":
         return f"Chaos Mesh NetworkChaos loss {spec['loss']['loss']}% on {scope}"
+    if kind == "NetworkChaos" and spec.get("action") == "partition":
+        peer = spec.get("target", {}).get("selector", {}).get("labelSelectors", {}).get("app", "a caller")
+        return f"Chaos Mesh NetworkChaos partition from {peer} on {scope}"
     if kind == "PodChaos":
         return f"Chaos Mesh PodChaos pod-kill on {scope}"
     if kind == "StressChaos":

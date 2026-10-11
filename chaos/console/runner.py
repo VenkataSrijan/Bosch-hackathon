@@ -37,6 +37,13 @@ FAULTS: list[dict[str, Any]] = [
     {"id": "loss", "label": "Packet loss", "params": [
         {"name": "loss_percent", "label": "Packets dropped", "unit": "%", "default": 30, "min": 1, "max": 100}]},
     {"id": "pod-kill", "label": "Pod kill", "params": []},
+    {"id": "cpu", "label": "CPU stress", "params": [
+        {"name": "workers", "label": "Workers", "unit": "", "default": 2, "min": 1, "max": 8},
+        {"name": "load", "label": "Load per worker", "unit": "%", "default": 80, "min": 1, "max": 100}]},
+    {"id": "memory", "label": "Memory stress", "params": [
+        {"name": "workers", "label": "Workers", "unit": "", "default": 1, "min": 1, "max": 8},
+        {"name": "size_mb", "label": "Size per worker", "unit": "MB", "default": 256, "min": 16, "max": 4096}]},
+    {"id": "dependency", "label": "Dependency failure", "params": []},  # Phase 1 picks the caller to cut
 ]
 DURATION = {"default": 60, "min": 10, "max": 600}
 
@@ -238,7 +245,7 @@ class RunManager:
         if not eligible and request.get("target"):
             eligible = [{"service": request["target"], "score": 0.0}]
 
-        fault_weight = {"latency": 25.0, "pod-kill": 20.0, "loss": 15.0}
+        fault_weight = {"dependency": 28.0, "latency": 25.0, "cpu": 22.0, "pod-kill": 20.0, "memory": 18.0, "loss": 15.0}
         duration = request.get("duration", DURATION["default"])
         max_p99 = request.get("max_p99_ms")
 
@@ -270,13 +277,18 @@ class RunManager:
                 "latency": "added latency stresses synchronous callers — the classic cascading-timeout test for missing client deadlines or circuit breakers.",
                 "loss": "packet loss tests retry logic and idempotency on its RPCs.",
                 "pod-kill": "killing one of its replicas tests failover and whether redundancy really absorbs the loss.",
+                "cpu": "CPU stress saturates the pod's cores to test whether throttling degrades latency gracefully or starves request handlers.",
+                "memory": "memory stress inflates the pod's footprint to test behaviour under pressure before the OOM killer steps in.",
+                "dependency": "severing its link to a caller makes it a failed dependency — tests whether the caller has a circuit breaker and fallback instead of collapsing.",
             }[fault]
             return f"{target} is {place}; {tail}"
 
         scored: list[tuple[float, str, str]] = []
         if eligible:
             top = eligible[0]["service"]
-            for fault in ("latency", "loss", "pod-kill"):
+            for fault in ("latency", "loss", "pod-kill", "cpu", "memory", "dependency"):
+                if fault == "dependency" and not (nodes.get(top) or {}).get("callers"):
+                    continue  # nothing calls this service, so there is no edge to cut
                 scored.append((eligible[0]["score"] + fault_weight[fault], top, fault))
             for c in eligible[1:4]:  # other eligible targets, their most-revealing fault
                 scored.append((c["score"] + fault_weight["latency"], c["service"], "latency"))
@@ -291,7 +303,8 @@ class RunManager:
         ranked = ranked[:6]
         max_risk = max((r for r, _, _ in ranked), default=1.0) or 1.0
 
-        fault_label = {"latency": "network latency", "loss": "packet loss", "pod-kill": "pod kill"}
+        fault_label = {"latency": "network latency", "loss": "packet loss", "pod-kill": "pod kill",
+                       "cpu": "CPU stress", "memory": "memory stress", "dependency": "dependency failure"}
         candidates = []
         for risk, target, fault in ranked:
             frac = risk / max_risk

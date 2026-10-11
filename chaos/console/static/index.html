@@ -663,7 +663,11 @@ function renderInjectOptions() {
 }
 function describeRequest(r) {
   const what = r.fault === "latency" ? `${r.delay_ms} ms latency (±${r.jitter_ms} ms)`
-    : r.fault === "loss" ? `${r.loss_percent}% packet loss` : "a pod kill";
+    : r.fault === "loss" ? `${r.loss_percent}% packet loss`
+    : r.fault === "cpu" ? `CPU stress (${r.workers} workers @ ${r.load}%)`
+    : r.fault === "memory" ? `memory stress (${r.workers}×${r.size_mb} MB)`
+    : r.fault === "dependency" ? "a dependency failure (network partition from a caller)"
+    : "a pod kill";
   const span = r.fault === "pod-kill" || !r.duration ? "" : ` for ${r.duration} s`;
   return `${what} on 1 ${r.target} pod${span}${r.max_p99_ms ? `, abort above ${r.max_p99_ms} ms p99` : ""}`;
 }

@@ -65,6 +65,38 @@ def test_operator_chooses_loss_fault(tmp_path: Path):
     assert plan.fault_profile.max_duration_seconds == 45
 
 
+def test_operator_chooses_cpu_stress(tmp_path: Path):
+    exp = run_observation(tmp_path, mock=True, fault="cpu", fault_params={"workers": 3, "load": 90}, duration_seconds=40)
+    plan = read_model(exp / EXPERIMENT_PLAN, ExperimentPlan)
+    assert (plan.fault_profile.category, plan.fault_profile.action) == ("stress", "cpu")
+    assert plan.fault_profile.parameters == {"workers": 3, "load": 90, "target_pods": 1}
+    assert plan.fault_profile.max_duration_seconds == 40
+
+
+def test_operator_chooses_memory_stress(tmp_path: Path):
+    exp = run_observation(tmp_path, mock=True, fault="memory",
+                          fault_params={"workers": 2, "size_mb": 512}, duration_seconds=50)
+    plan = read_model(exp / EXPERIMENT_PLAN, ExperimentPlan)
+    assert (plan.fault_profile.category, plan.fault_profile.action) == ("stress", "memory")
+    assert plan.fault_profile.parameters == {"workers": 2, "size_mb": 512, "target_pods": 1}
+
+
+def test_operator_chooses_dependency_failure(tmp_path: Path):
+    # paymentservice is the eligible (2-replica) target; its caller is checkoutservice, so the
+    # dependency fault partitions paymentservice from checkoutservice.
+    exp = run_observation(tmp_path, mock=True, fault="dependency", duration_seconds=45)
+    plan = read_model(exp / EXPERIMENT_PLAN, ExperimentPlan)
+    assert (plan.fault_profile.category, plan.fault_profile.action) == ("network", "dependency")
+    assert plan.fault_profile.parameters == {"caller": "checkoutservice", "direction": "both", "target_pods": 1}
+
+
+def test_operator_dependency_failure_honours_explicit_caller(tmp_path: Path):
+    exp = run_observation(tmp_path, mock=True, fault="dependency",
+                          fault_params={"caller": "checkoutservice"}, duration_seconds=30)
+    plan = read_model(exp / EXPERIMENT_PLAN, ExperimentPlan)
+    assert plan.fault_profile.parameters["caller"] == "checkoutservice"
+
+
 def test_operator_target_needs_two_replicas(tmp_path: Path):
     with pytest.raises(ValueError, match="at least 2 are needed"):
         run_observation(tmp_path, mock=True, target="checkoutservice")
@@ -82,7 +114,9 @@ def test_operator_p99_limit_must_exceed_the_injected_delay(tmp_path: Path, capsy
     ("latency", {"delay_ms": 0}, "1 <= delay_ms"),
     ("loss", {"loss_percent": 150}, "1 <= loss_percent"),
     ("pod-kill", {"delay_ms": 10}, "takes no parameter"),
-    ("cpu", {}, "unsupported fault"),
+    ("cpu", {"workers": 99, "load": 80}, "1 <= workers <= 8"),
+    ("memory", {"workers": 1, "size_mb": 1}, "16 <= size_mb"),
+    ("disk", {}, "unsupported fault"),
 ])
 def test_fault_parameters_are_validated(action, params, error):
     with pytest.raises(ValueError, match=error):

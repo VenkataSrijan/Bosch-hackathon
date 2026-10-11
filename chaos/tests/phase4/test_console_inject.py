@@ -44,14 +44,14 @@ def test_options_list_faults_and_eligible_targets(mock_console):
     code, body = call(f"{base}/api/v1/inject")
     opts = json.loads(body)
     assert code == 200 and opts["mode"] == "mock" and opts["problems"] == []
-    assert [f["id"] for f in opts["faults"]] == ["latency", "loss", "pod-kill"]
+    assert [f["id"] for f in opts["faults"]] == ["latency", "loss", "pod-kill", "cpu", "memory", "dependency"]
     targets = {t["service"]: t for t in opts["targets"]}
     assert targets["paymentservice"]["eligible"] is True
     assert targets["checkoutservice"]["eligible"] is False and "--replicas=2" in targets["checkoutservice"]["reason"]
 
 
 @pytest.mark.parametrize("request_body,error", [
-    ({"target": "paymentservice", "fault": "cpu"}, "fault must be one of"),
+    ({"target": "paymentservice", "fault": "disk"}, "fault must be one of"),
     ({"target": "checkoutservice", "fault": "latency"}, "needs 2 replicas"),
     ({"target": "nope", "fault": "latency"}, "unknown target"),
     ({"target": "paymentservice", "fault": "loss", "loss_percent": 150}, "loss_percent must be between"),
@@ -61,6 +61,27 @@ def test_bad_requests_are_refused(mock_console, request_body, error):
     _, base, _ = mock_console
     code, body = call(f"{base}/api/v1/runs", "POST", body=request_body)
     assert code == 400 and error in json.loads(body)["error"]
+
+
+def test_validate_builds_cpu_and_memory_args(tmp_path):
+    runner = RunManager(tmp_path, mock=True)
+    args, request = runner._validate(
+        {"target": "paymentservice", "fault": "cpu", "workers": 3, "load": 90, "duration": 40})
+    assert request == {"target": "paymentservice", "fault": "cpu", "workers": 3, "load": 90, "duration": 40}
+    assert args[args.index("--fault") + 1] == "cpu"
+    assert "--workers" in args and "--load" in args
+
+    args2, request2 = runner._validate(
+        {"target": "paymentservice", "fault": "memory", "workers": 2, "size_mb": 512})
+    assert request2 == {"target": "paymentservice", "fault": "memory", "workers": 2, "size_mb": 512}
+    assert args2[args2.index("--fault") + 1] == "memory" and "--size-mb" in args2
+
+
+def test_validate_accepts_dependency_failure(tmp_path):
+    runner = RunManager(tmp_path, mock=True)
+    args, request = runner._validate({"target": "paymentservice", "fault": "dependency", "duration": 45})
+    assert request == {"target": "paymentservice", "fault": "dependency", "duration": 45}
+    assert args[args.index("--fault") + 1] == "dependency"
 
 
 def test_cross_site_posts_are_refused(mock_console):

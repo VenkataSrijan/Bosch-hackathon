@@ -151,16 +151,30 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--delay-ms", type=int, default=None, help="latency: added delay")
     parser.add_argument("--jitter-ms", type=int, default=None, help="latency: jitter")
     parser.add_argument("--loss-percent", type=int, default=None, help="loss: share of packets dropped")
+    parser.add_argument("--workers", type=int, default=None, help="cpu/memory stress: worker count")
+    parser.add_argument("--load", type=int, default=None, help="cpu stress: %% load per worker")
+    parser.add_argument("--size-mb", type=int, default=None, help="memory stress: MB allocated per worker")
+    parser.add_argument("--caller", default=None, help="dependency: the caller to cut off (default: from the topology)")
     parser.add_argument("--duration", type=int, default=60, help="fault window in seconds (default: 60)")
     parser.add_argument("--max-p99-ms", type=float, default=None,
                         help="abort if frontend p99 exceeds this (default: derived from the baseline)")
     args = parser.parse_args(argv)
     if not 10 <= args.duration <= 600:
         parser.error("--duration must be between 10 and 600 seconds")
-    params = {"delay_ms": args.delay_ms, "jitter_ms": args.jitter_ms, "loss_percent": args.loss_percent}
+    params = {"delay_ms": args.delay_ms, "jitter_ms": args.jitter_ms, "loss_percent": args.loss_percent,
+              "workers": args.workers, "load": args.load, "size_mb": args.size_mb, "caller": args.caller}
     params = {k: v for k, v in params.items() if v is not None}
     if params and not args.fault:
-        args.fault = "latency" if "loss_percent" not in params else "loss"
+        if "caller" in params:
+            args.fault = "dependency"
+        elif "loss_percent" in params:
+            args.fault = "loss"
+        elif "size_mb" in params:
+            args.fault = "memory"
+        elif "workers" in params or "load" in params:
+            args.fault = "cpu"
+        else:
+            args.fault = "latency"
 
     settings = get_settings()
     out = args.out or settings.artifacts_dir

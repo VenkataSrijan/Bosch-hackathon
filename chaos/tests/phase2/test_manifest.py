@@ -88,6 +88,26 @@ def test_cpu_and_memory_stress_mapping():
     assert m2["spec"]["stressors"]["memory"]["size"] == "512MB"
 
 
+def test_memory_stress_accepts_numeric_size_mb():
+    # Phase 1 and the console carry a numeric size_mb; the manifest renders it as a Chaos Mesh size string.
+    mem = plan(fault_profile={"category": "stress", "action": "memory",
+                              "parameters": {"workers": 2, "size_mb": 384, "target_pods": 1}})
+    kind, m = build_manifest(mem, duration_seconds=60, target_pods=1)
+    assert kind == "StressChaos"
+    assert m["spec"]["stressors"]["memory"] == {"workers": 2, "size": "384MB"}
+
+
+def test_dependency_failure_partitions_the_named_caller():
+    dep = plan(fault_profile={"category": "network", "action": "dependency",
+                              "parameters": {"caller": "checkoutservice", "direction": "both", "target_pods": 1}})
+    kind, m = build_manifest(dep, duration_seconds=45, target_pods=1)
+    assert kind == "NetworkChaos"
+    assert m["spec"]["action"] == "partition"
+    assert m["spec"]["direction"] == "both"
+    assert m["spec"]["target"]["selector"]["labelSelectors"]["app"] == "checkoutservice"
+    assert m["spec"]["duration"] == "45s"
+
+
 def test_unsupported_fault_raises():
     p = plan(fault_profile={"category": "chaos", "action": "banana", "parameters": {}})
     with pytest.raises(UnsupportedFault):

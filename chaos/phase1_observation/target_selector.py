@@ -29,6 +29,9 @@ FAULTS: dict[str, tuple[str, dict[str, Any]]] = {
     "latency": ("network", {"delay_ms": 250, "jitter_ms": 20}),
     "loss": ("network", {"loss_percent": 30}),
     "pod-kill": ("pod", {}),
+    "cpu": ("stress", {"workers": 2, "load": 80}),
+    "memory": ("stress", {"workers": 1, "size_mb": 256}),
+    "dependency": ("network", {}),  # partition the target from one caller; Phase 1 picks the caller
 }
 
 
@@ -48,6 +51,10 @@ def fault_parameters(action: str, overrides: dict[str, Any] | None = None) -> tu
         raise ValueError("latency needs 1 <= delay_ms <= 5000 and 0 <= jitter_ms <= delay_ms")
     if action == "loss" and not (1 <= params["loss_percent"] <= 100):
         raise ValueError("loss needs 1 <= loss_percent <= 100")
+    if action == "cpu" and not (1 <= params["workers"] <= 8 and 1 <= params["load"] <= 100):
+        raise ValueError("cpu stress needs 1 <= workers <= 8 and 1 <= load <= 100")
+    if action == "memory" and not (1 <= params["workers"] <= 8 and 16 <= params["size_mb"] <= 4096):
+        raise ValueError("memory stress needs 1 <= workers <= 8 and 16 <= size_mb <= 4096")
     return category, params
 
 
@@ -127,8 +134,20 @@ def select_target_and_fault(
         targetable_replicas=targetable,
     )
 
-    if parameters is None:
-        fault_params: dict[str, Any] = {"delay_ms": delay_ms, "jitter_ms": jitter_ms}
+    if action == "dependency":
+        # Sever the target from one of its callers: from that caller's side the target is a
+        # failed dependency. Blast-safe because we still hit only one target replica.
+        category = "network"
+        caller = (parameters or {}).get("caller") or (parameters or {}).get("dependency")
+        if not caller:
+            caller = chosen_node.callers[0] if chosen_node.callers else None
+        if not caller:
+            raise ValueError(
+                f"dependency failure needs an upstream caller to cut, but {chosen_node.name} has no "
+                "observed callers; choose a service that something else calls")
+        fault_params: dict[str, Any] = {"caller": caller, "direction": "both"}
+    elif parameters is None:
+        fault_params = {"delay_ms": delay_ms, "jitter_ms": jitter_ms}
     else:
         category, fault_params = fault_parameters(action, parameters)
 
@@ -182,4 +201,10 @@ def describe_fault(fault: FaultProfile) -> str:
         return f"{p.get('loss_percent')}% packet loss"
     if fault.action == "pod-kill":
         return "a pod kill"
+    if fault.action == "cpu":
+        return f"CPU stress ({p.get('workers')} workers at {p.get('load')}% load)"
+    if fault.action == "memory":
+        return f"memory stress ({p.get('workers')} worker(s), {p.get('size_mb')} MB each)"
+    if fault.action == "dependency":
+        return f"dependency failure (network partition from {p.get('caller')})"
     return f"{fault.category}/{fault.action}"

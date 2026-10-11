@@ -37,13 +37,17 @@ _REF_DELAY_MS = 250.0
 def _mock_scenario(plan) -> str:
     """Which recorded health curve --mock should replay for this plan.
 
-    Only latency has a recorded edge breach, so it aborts only when its predicted edge p99 would
-    exceed the operator's abort threshold (raise the threshold, or soften the delay, to let it
-    complete). loss and pod-kill are tolerated at the edge in this app, so they replay 'healthy'.
-    This keeps the replayed graph honest about the fault that was actually chosen.
+    A severed critical dependency is a hard outage, so 'dependency' always trips the kill switch.
+    Latency aborts only when its predicted edge p99 would exceed the operator's abort threshold
+    (raise the threshold, or soften the delay, to let it complete). loss, pod-kill and the stress
+    faults are tolerated at the edge in this app, so they replay 'healthy'. This keeps the replayed
+    graph honest about the fault that was actually chosen.
     """
+    action = plan.fault_profile.action
+    if action == "dependency":
+        return "abort"  # a severed critical dependency is a hard outage; the kill switch should trip
     threshold = plan.abort_thresholds.max_p99_latency_ms
-    if plan.fault_profile.action != "latency" or threshold is None:
+    if action != "latency" or threshold is None:
         return "healthy"
     base = plan.steady_state_baseline.p99_latency_ms or 18.5
     delay = float(plan.fault_profile.parameters.get("delay_ms") or 0)
@@ -68,15 +72,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repo", type=Path, default=REPO_ROOT, help="repository root passed to Phase 4")
     fault = parser.add_argument_group("fault (passed to Phase 1)")
     fault.add_argument("--target", help="service to inject into (needs at least 2 replicas)")
-    fault.add_argument("--fault", choices=["latency", "loss", "pod-kill"])
+    fault.add_argument("--fault", choices=["latency", "loss", "pod-kill", "cpu", "memory", "dependency"])
     fault.add_argument("--delay-ms", type=int)
     fault.add_argument("--jitter-ms", type=int)
     fault.add_argument("--loss-percent", type=int)
+    fault.add_argument("--workers", type=int, help="cpu/memory stress: worker count")
+    fault.add_argument("--load", type=int, help="cpu stress: %% load per worker")
+    fault.add_argument("--size-mb", type=int, help="memory stress: MB per worker")
+    fault.add_argument("--caller", help="dependency failure: the caller to cut off (default: picked from the topology)")
     fault.add_argument("--duration", type=int, help="fault window in seconds (default 60)")
     fault.add_argument("--max-p99-ms", type=float, help="abort if frontend p99 exceeds this")
     args = parser.parse_args(argv)
     phase1_opts: list[str] = []
-    for name in ("target", "fault", "delay_ms", "jitter_ms", "loss_percent", "duration", "max_p99_ms"):
+    for name in ("target", "fault", "delay_ms", "jitter_ms", "loss_percent",
+                 "workers", "load", "size_mb", "caller", "duration", "max_p99_ms"):
         value = getattr(args, name)
         if value is not None:
             phase1_opts += [f"--{name.replace('_', '-')}", str(value)]
